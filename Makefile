@@ -1,4 +1,4 @@
-.PHONY: setup assets api web inngest dev serve demo test
+.PHONY: setup assets api web inngest dev serve demo test test-browser
 
 # uv installs Python 3.12 (backend/.python-version) and every backend package;
 # npm installs the UI and the Inngest dev server (pinned in frontend/package.json).
@@ -29,6 +29,10 @@ demo:
 
 test:
 	cd backend && uv run pytest -q
+
+# The browser agent against a mock ODeX page, in a real Chromium. DO_BROWSER_HEADLESS=0 shows it.
+test-browser:
+	cd backend && uv run pytest -q -m browser
 
 # Stamps, bonds and letterhead artwork, built from the Docs folder the team shared.
 assets:

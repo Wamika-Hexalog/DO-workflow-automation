@@ -16,6 +16,15 @@ dependencies = [
     "pillow==12.3.0",
     "python-multipart==0.0.32",
     "inngest==0.5.17",
+    "playwright==1.58.0",
+    "stagehand==3.6.0",
+    "langgraph==1.0.10",
+    "langchain-core==1.2.17",
+    "langchain-google-genai==4.2.1",
+    "google-genai==1.66.0",
+    "langsmith==0.7.14",
+    "structlog==25.5.0",
+    "python-dotenv==1.2.4",
 ]
 
 [dependency-groups]
@@ -31,8 +40,12 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["browser: opens Chromium to run the browser agent (slow); make test-browser runs them"]
+addopts = "-m 'not browser'"
 filterwarnings = [
     # Raised inside the Inngest SDK, not by this app.
     "ignore:Support for class-based `config` is deprecated:DeprecationWarning:inngest",
     "ignore:There is no current event loop:DeprecationWarning:inngest",
+    # In the browser agent copied from python-brain, left as it is there.
+    "ignore:datetime.datetime.utcnow:DeprecationWarning:app.agents",
 ]

@@ -1,0 +1,53 @@
+# The steps the real ODeX SOP will take, against the mock page next to this file.
+# The test fills in __PORTAL_URL__. Same format as python-brain's SOPs.
+metadata:
+  name: "Mock ODeX - New DO Request"
+  version: "0.1"
+  retry_config:
+    max_retries: 1
+    retry_delay: 1.0
+
+steps:
+  - action: goto
+    description: Open the New DO Request page
+    method: playwright
+    url: "__PORTAL_URL__"
+    wait_for: load
+
+  - action: fill
+    description: Enter the HBL number (ODeX wants the HBL, not the MBL)
+    method: playwright
+    selector: "#hblNo"
+    value_from: params.hbl_no
+
+  - action: upload_file
+    description: Attach the DO folder PDF
+    method: playwright
+    selector: "#document"
+    file_path_from: params.folder_pdf_path
+
+  - action: click
+    description: Add Row
+    method: playwright
+    selector: "#addRow"
+
+  - action: click
+    description: Submit the request
+    method: playwright
+    selector: "#submit"
+
+  - action: wait_for_selector
+    description: Wait for the portal's answer
+    method: playwright
+    selector: "#confirmation[data-status]"
+
+  - action: execute_script
+    description: Read the request reference
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const out = document.querySelector('#confirmation');
+        if (out.dataset.status !== 'accepted') throw new Error(out.textContent);
+        return { odex_request_ref: out.dataset.reference, odex_confirmation: out.textContent };
+      }

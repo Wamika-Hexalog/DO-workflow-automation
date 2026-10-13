@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BACKEND_DIR.parent
 
@@ -44,6 +46,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        # Secrets such as GOOGLE_API_KEY and the ODeX login live in backend/.env
+        # (see .env.example). Variables already set in the environment win.
+        load_dotenv(BACKEND_DIR / ".env", override=False)
         data_dir = Path(os.getenv("DO_DATA_DIR", str(BACKEND_DIR / "data")))
         assets_dir = Path(os.getenv("DO_ASSETS_DIR", str(BACKEND_DIR / "assets")))
         default_sop = cls.__dataclass_fields__["odex_sop_path"].default

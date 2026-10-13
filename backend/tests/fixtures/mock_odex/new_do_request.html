@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mock ODeX · New DO Request</title>
+</head>
+<body>
+  <!-- A test stand-in for ODeX's e-Payment → DO Request → New DO Request page. It
+       accepts a request only with a valid HBL number and a real PDF attached through
+       Add Row, then shows a reference, like the portal's confirmation. -->
+  <h1>New DO Request</h1>
+  <form id="request">
+    <label>HBL number <input id="hblNo" name="hblNo" autocomplete="off"></label>
+    <label>Document <input id="document" type="file" accept="application/pdf"></label>
+    <button id="addRow" type="button">Add Row</button>
+    <table id="rows"><tbody></tbody></table>
+    <button id="submit" type="submit">Submit</button>
+  </form>
+  <p id="confirmation" hidden></p>
+  <script>
+    const rows = [];
+    document.getElementById("addRow").addEventListener("click", () => {
+      const file = document.getElementById("document").files[0];
+      if (!file) return;
+      rows.push(file);
+      const row = document.createElement("tr");
+      row.textContent = `${file.name} (${file.size} bytes)`;
+      document.querySelector("#rows tbody").append(row);
+    });
+    document.getElementById("request").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const out = document.getElementById("confirmation");
+      const hbl = document.getElementById("hblNo").value.trim();
+      const reject = (why) => {
+        out.dataset.status = "rejected";
+        out.textContent = `Rejected: ${why}`;
+        out.hidden = false;
+      };
+      if (!/^MSEC\d{12}$/.test(hbl)) return reject("enter the HBL number.");
+      if (rows.length === 0) return reject("attach the document with Add Row.");
+      const head = new Uint8Array(await rows[0].slice(0, 5).arrayBuffer());
+      if (String.fromCharCode(...head) !== "%PDF-") return reject("the document is not a PDF.");
+      out.dataset.reference = `DOREQ-${hbl.slice(-6)}`;
+      out.dataset.status = "accepted";
+      out.textContent = `DO request ${out.dataset.reference} submitted for ${hbl} with ${rows[0].name} (${rows[0].size} bytes).`;
+      out.hidden = false;
+    });
+  </script>
+</body>
+</html>

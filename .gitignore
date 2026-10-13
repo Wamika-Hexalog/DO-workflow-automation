@@ -7,3 +7,5 @@ frontend/node_modules/
 frontend/dist/
 Docs/
 backend/assets/private/
+.env
+!.env.example
