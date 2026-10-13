@@ -5,6 +5,24 @@ import Detail from "./components/Detail.jsx";
 import TopBar from "./components/TopBar.jsx";
 import { indexFolder } from "./lib/folder.js";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Polls the shipment until `done` says the workflow has finished, or time runs out.
+async function waitFor(id, done, onUpdate, { every, limit }) {
+  const deadline = Date.now() + limit;
+  let current = await api.shipment(id);
+  onUpdate(current);
+  while (!done(current) && Date.now() < deadline) {
+    await sleep(every);
+    current = await api.shipment(id);
+    onUpdate(current);
+  }
+  return current;
+}
+
+const doRequestTask = (s) => s.tasks.find((t) => t.key === "odex_do_request");
+const requested = (s) => s.status === "do_requested" || s.status === "edo_received";
+
 function download(doc) {
   const link = document.createElement("a");
   link.href = doc.url;
@@ -27,6 +45,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [boardFocus, setBoardFocus] = useState(null);
   const [building, setBuilding] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   const say = useCallback((msg) => setToast({ msg, at: Date.now() }), []);
 
@@ -100,8 +119,18 @@ export default function App() {
       const before = shipments.find((s) => s.id === id);
       setBuilding(true);
       try {
-        const updated = await api.build(id);
-        replaceShipment(updated);
+        replaceShipment(await api.build(id));
+        // The build workflow makes the PDF; wait for it, then download.
+        const updated = await waitFor(id, (s) => !s.building, replaceShipment, { every: 1000, limit: 60000 });
+        const review = updated.tasks.find((t) => t.key === "folder_review");
+        if (updated.building) {
+          say("Still building. Check that the workflow engine is running: make dev starts it.");
+          return false;
+        }
+        if (review && review.status === "failed") {
+          say(`The DO folder wasn't built. ${review.note}`);
+          return false;
+        }
         if (updated.folder) download(updated.folder);
         if (before && before.status !== updated.status) {
           say("DO folder built and downloaded. The job moved to DO folder ready.");
@@ -117,6 +146,31 @@ export default function App() {
       }
     },
     [shipments, replaceShipment, say],
+  );
+
+  const approveDoRequest = useCallback(
+    async (id) => {
+      setApproving(true);
+      try {
+        replaceShipment(await api.completeTask(id, "odex_do_request"));
+        // A browser run on ODeX takes minutes; a request raised by hand is recorded at once.
+        const updated = await waitFor(
+          id,
+          (s) => requested(s) || doRequestTask(s)?.status === "failed",
+          replaceShipment,
+          { every: 2000, limit: 15 * 60 * 1000 },
+        );
+        const task = doRequestTask(updated);
+        if (task && task.status === "failed") say(`The DO request didn't go through. ${task.note}`);
+        else if (requested(updated)) say("DO request recorded. The job moved to DO requested.");
+        else say("The DO request is still running. Open the job again later to see how it went.");
+      } catch (err) {
+        say(err.message);
+      } finally {
+        setApproving(false);
+      }
+    },
+    [replaceShipment, say],
   );
 
   const newShipment = useCallback(async () => {
@@ -186,6 +240,8 @@ export default function App() {
           onMove={moveTo}
           onBuild={build}
           building={building}
+          onApproveDoRequest={approveDoRequest}
+          approving={approving}
           onShipmentSaved={replaceShipment}
           onProfileSaved={onProfileSaved}
           say={say}

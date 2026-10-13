@@ -1,20 +1,34 @@
-"""HTTP API for the board, the shipment forms, the DO folder and its PDF."""
+"""HTTP API for the board, the shipment forms, the DO folder, its PDF and the ops tasks.
+
+Saving a change is the API's job; what follows from it is the workflows' job. Each
+change is saved first, then announced to Inngest:
+
+* uploads and edits send a notice the folder check picks up. It is best-effort:
+  if the workflow engine is down the change still stands, and the next one
+  catches the check up;
+* building the folder and approving the DO request complete a task, and the
+  event they send starts the work. If it can't be sent the task is put back and
+  the caller hears why, so nothing waits on an event that never left.
+"""
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from typing import Annotated, Any
 
+import inngest
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import assemble, checks, containers, letters, pdfs
-from .config import Settings
-from .db import Document, Event, Profile, Shipment, utcnow
+from . import assemble, checks, containers, letters, pdfs, service, tasks
+from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot
+from .runtime import Runtime
 from .schemas import (
     BuildIn,
     EventOut,
@@ -23,55 +37,91 @@ from .schemas import (
     FolderOut,
     MoveIn,
     ProfileOut,
+    RunOut,
     ShipmentIn,
     ShipmentOut,
     SlotOut,
+    TaskCompleteIn,
+    TaskOut,
     ValuesIn,
 )
-from .seed import PROFILE_ID, financial_year, seed_demo_data
+from .seed import financial_year, seed_demo_data
+from .workflows.events import EventNames
+
+logger = logging.getLogger(__name__)
 
 MAX_UPLOAD = 25 * 1024 * 1024
+ENGINE_DOWN = "The workflow engine isn't running, so nothing was started. Start it with make dev, then try again."
 
 router = APIRouter(prefix="/api")
 
 
+def get_runtime(request: Request) -> Runtime:
+    return request.app.state.rt
+
+
 def get_session(request: Request) -> Iterator[Session]:
-    with request.app.state.sessionmaker() as session:
+    with request.app.state.rt.sessionmaker() as session:
         yield session
 
 
-def get_folder(request: Request) -> Folder:
-    return request.app.state.folder
-
-
-def get_settings(request: Request) -> Settings:
-    return request.app.state.settings
-
-
 SessionDep = Annotated[Session, Depends(get_session)]
-FolderDep = Annotated[Folder, Depends(get_folder)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+RuntimeDep = Annotated[Runtime, Depends(get_runtime)]
 
 
-def _aware(moment: datetime | None) -> datetime | None:
-    """SQLite drops time zones; stored times are UTC."""
-    if moment is not None and moment.tzinfo is None:
-        return moment.replace(tzinfo=timezone.utc)
-    return moment
+class EngineUnavailable(Exception):
+    pass
+
+
+def _send(rt: Runtime, name: str, payloads: list[dict[str, Any]]) -> None:
+    if payloads:
+        try:
+            rt.inngest.send_sync([inngest.Event(name=name, data=payload) for payload in payloads])
+        except Exception as exc:
+            raise EngineUnavailable(str(exc)) from exc
+
+
+# One worker: notices leave in the order they were made, and a request never waits
+# for one. With the engine down a send takes seconds to give up.
+_notices = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inngest-notice")
+
+
+def _notify(rt: Runtime, name: str, payloads: list[dict[str, Any]]) -> None:
+    """Best-effort: the change is saved whether or not the engine hears about it."""
+
+    def send() -> None:
+        try:
+            _send(rt, name, payloads)
+        except EngineUnavailable as exc:
+            logger.warning("Inngest did not get %s: %s", name, exc)
+
+    _notices.submit(send)
+
+
+def flush_notices() -> None:
+    """Waits until every notice so far has been sent. For tests."""
+    _notices.submit(lambda: None).result()
 
 
 def _profile(session: Session) -> Profile:
-    profile = session.get(Profile, PROFILE_ID)
-    if profile is None:
-        raise HTTPException(503, "There are no fixed details yet. Reset the demo data or restart the API.")
-    return profile
+    try:
+        return service.load_profile(session)
+    except service.NotFound as exc:
+        raise HTTPException(503, str(exc)) from exc
 
 
 def _shipment(session: Session, shipment_id: str) -> Shipment:
-    shipment = session.get(Shipment, shipment_id)
-    if shipment is None:
-        raise HTTPException(404, "Shipment not found.")
-    return shipment
+    try:
+        return service.load_shipment(session, shipment_id)
+    except service.NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+def _slot(folder: Folder, shipment: Shipment, slot_id: str) -> Slot:
+    slot = service.find_slot(folder, shipment, slot_id)
+    if slot is None:
+        raise HTTPException(404, "That document is not part of this shipment's folder.")
+    return slot
 
 
 def _check(folder: Folder, values: dict[str, Any], scope: str) -> None:
@@ -80,63 +130,32 @@ def _check(folder: Folder, values: dict[str, Any], scope: str) -> None:
         raise HTTPException(422, {"message": "Some values could not be saved.", "fields": errors})
 
 
-def _current_docs(session: Session, shipment_id: str | None = None) -> list[Document]:
-    query = select(Document).where(Document.current.is_(True))
-    if shipment_id:
-        query = query.where(Document.shipment_id == shipment_id)
-    return list(session.scalars(query))
-
-
-def _context(session: Session) -> checks.Context:
-    return checks.build_context(list(session.scalars(select(Shipment))), _current_docs(session))
-
-
-def _slot(folder: Folder, shipment: Shipment, slot_id: str) -> Slot:
-    slot = next((s for s in folder.slots(shipment.data) if s.id == slot_id), None)
-    if slot is None:
-        raise HTTPException(404, "That document is not part of this shipment's folder.")
-    return slot
-
-
-def _attached(session: Session, shipment: Shipment, slot: Slot) -> Document | None:
-    return session.scalar(
-        select(Document).where(
-            Document.shipment_id == shipment.id,
-            Document.doc_key == slot.doc.key,
-            Document.hbl.is_(None) if slot.hbl is None else Document.hbl == slot.hbl,
-            Document.current.is_(True),
-        )
-    )
-
-
-def _log(session: Session, shipment: Shipment, action: str, detail: str) -> None:
-    session.add(Event(shipment_id=shipment.id, action=action, detail=detail))
-
-
-def _slot_name(slot: Slot) -> str:
-    return slot.doc.title + (f" for HBL {slot.hbl}" if slot.hbl else "")
-
-
-def _stale(shipment: Shipment, profile: Profile) -> bool:
-    built = _aware(shipment.folder_built_at)
-    if built is None:
-        return True
-    return max(_aware(shipment.changed_at), _aware(profile.updated_at)) > built
-
-
 def profile_out(profile: Profile) -> ProfileOut:
     return ProfileOut(id=profile.id, name=profile.name, values=profile.data)
 
 
+def task_out(task: Task) -> TaskOut:
+    return TaskOut(
+        key=task.task_key,
+        title=tasks.TITLES.get(task.task_key, task.task_key),
+        status=task.status,
+        note=task.note or "",
+        completed_at=service.aware(task.completed_at),
+        completed_by=task.completed_by,
+        result=task.result or {},
+    )
+
+
 def shipment_out(
+    rt: Runtime,
     shipment: Shipment,
     profile: Profile,
-    folder: Folder,
-    settings: Settings,
     documents: list[Document],
     ctx: checks.Context,
+    shipment_tasks: list[Task],
 ) -> ShipmentOut:
-    states = checks.folder_state(folder, shipment, documents, profile.data, settings.private_dir, ctx)
+    folder = rt.folder
+    states = checks.folder_state(folder, shipment, documents, profile.data, rt.settings.private_dir, ctx)
     base = f"/api/shipments/{shipment.id}"
     slots = []
     for state in states:
@@ -156,7 +175,7 @@ def shipment_out(
                     id=doc.id,
                     name=doc.original_name,
                     pages=doc.page_count,
-                    uploaded_at=_aware(doc.uploaded_at),
+                    uploaded_at=service.aware(doc.uploaded_at),
                     checked_by_eye=doc.checked_by_eye,
                     original_url=f"{base}/slots/{state.slot.id}/original",
                 )
@@ -175,9 +194,10 @@ def shipment_out(
         folder_out = FolderOut(
             url=f"{base}/folder.pdf",
             filename=shipment.folder_file,
-            built_at=_aware(shipment.folder_built_at),
-            stale=_stale(shipment, profile),
+            built_at=service.aware(shipment.folder_built_at),
+            stale=service.stale(shipment, profile),
         )
+    review = next((t for t in shipment_tasks if t.task_key == tasks.FOLDER_REVIEW), None)
     return ShipmentOut(
         id=shipment.id,
         job_no=shipment.job_no,
@@ -191,15 +211,22 @@ def shipment_out(
         docs_total=len(states),
         ready=all(s.status == "ok" for s in states),
         folder=folder_out,
+        building=service.is_building(review, shipment),
+        tasks=[task_out(t) for t in shipment_tasks],
         requested_on=shipment.requested_on,
         edo_received_on=shipment.edo_received_on,
-        updated_at=_aware(shipment.updated_at),
+        updated_at=service.aware(shipment.updated_at),
     )
 
 
-def _one(session: Session, shipment: Shipment, folder: Folder, settings: Settings) -> ShipmentOut:
+def _one(rt: Runtime, session: Session, shipment: Shipment) -> ShipmentOut:
     return shipment_out(
-        shipment, _profile(session), folder, settings, _current_docs(session, shipment.id), _context(session)
+        rt,
+        shipment,
+        _profile(session),
+        service.current_docs(session, shipment.id),
+        service.check_context(session),
+        tasks.for_shipment(session, shipment.id),
     )
 
 
@@ -216,9 +243,9 @@ def health() -> dict[str, bool]:
 
 
 @router.get("/folder")
-def read_folder(folder: FolderDep) -> dict[str, Any]:
+def read_folder(rt: RuntimeDep) -> dict[str, Any]:
     """Documents, fields and stages. The UI builds its forms from this."""
-    return folder.to_api()
+    return {**rt.folder.to_api(), "odex": {"automated": rt.settings.odex_automated}}
 
 
 @router.get("/profile", response_model=ProfileOut)
@@ -227,81 +254,85 @@ def read_profile(session: SessionDep) -> ProfileOut:
 
 
 @router.patch("/profile", response_model=ProfileOut)
-def update_profile(body: ValuesIn, session: SessionDep, folder: FolderDep) -> ProfileOut:
-    _check(folder, body.values, "profile")
+def update_profile(body: ValuesIn, session: SessionDep, rt: RuntimeDep) -> ProfileOut:
+    _check(rt.folder, body.values, "profile")
     profile = _profile(session)
     profile.data = {**profile.data, **body.values}
     session.commit()
+    # Every shipment's letters print the fixed details.
+    _notify(rt, EventNames.SHIPMENT_UPDATED, [{"shipment_id": sid} for sid in session.scalars(select(Shipment.id))])
     return profile_out(profile)
 
 
 @router.get("/shipments", response_model=list[ShipmentOut])
-def list_shipments(session: SessionDep, folder: FolderDep, settings: SettingsDep) -> list[ShipmentOut]:
+def list_shipments(session: SessionDep, rt: RuntimeDep) -> list[ShipmentOut]:
     profile = _profile(session)
     shipments = list(session.scalars(select(Shipment).order_by(Shipment.created_at.desc())))
-    documents = _current_docs(session)
+    documents = service.current_docs(session)
     ctx = checks.build_context(shipments, documents)
     by_shipment: dict[str, list[Document]] = {}
     for doc in documents:
         by_shipment.setdefault(doc.shipment_id, []).append(doc)
-    return [shipment_out(s, profile, folder, settings, by_shipment.get(s.id, []), ctx) for s in shipments]
+    tasks_by_shipment: dict[str, list[Task]] = {}
+    for task in session.scalars(select(Task).order_by(Task.id)):
+        tasks_by_shipment.setdefault(task.shipment_id, []).append(task)
+    return [
+        shipment_out(rt, s, profile, by_shipment.get(s.id, []), ctx, tasks_by_shipment.get(s.id, []))
+        for s in shipments
+    ]
 
 
 @router.post("/shipments", response_model=ShipmentOut, status_code=201)
-def create_shipment(body: ShipmentIn, session: SessionDep, folder: FolderDep, settings: SettingsDep) -> ShipmentOut:
-    _check(folder, body.values, "shipment")
+def create_shipment(body: ShipmentIn, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
+    _check(rt.folder, body.values, "shipment")
     shipment = Shipment(
         id=uuid.uuid4().hex[:12],
-        job_no=_next_job_no(session, settings.job_prefix),
+        job_no=_next_job_no(session, rt.settings.job_prefix),
         status=STAGE_IDS[0],
         owner=body.owner,
-        data={**folder.defaults("shipment", date.today()), **body.values},
+        data={**rt.folder.defaults("shipment", date.today()), **body.values},
     )
     session.add(shipment)
-    _log(session, shipment, "created", f"Job {shipment.job_no} opened.")
+    service.log(session, shipment.id, "created", f"Job {shipment.job_no} opened.")
     session.commit()
-    return _one(session, shipment, folder, settings)
+    return _one(rt, session, shipment)
 
 
 @router.get("/shipments/{shipment_id}", response_model=ShipmentOut)
-def read_shipment(shipment_id: str, session: SessionDep, folder: FolderDep, settings: SettingsDep) -> ShipmentOut:
-    return _one(session, _shipment(session, shipment_id), folder, settings)
+def read_shipment(shipment_id: str, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
+    return _one(rt, session, _shipment(session, shipment_id))
 
 
 @router.patch("/shipments/{shipment_id}/values", response_model=ShipmentOut)
-def update_values(
-    shipment_id: str, body: ValuesIn, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> ShipmentOut:
+def update_values(shipment_id: str, body: ValuesIn, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
     """Saves only the fields sent. The UI calls this as the user types."""
-    _check(folder, body.values, "shipment")
+    _check(rt.folder, body.values, "shipment")
     shipment = _shipment(session, shipment_id)
     shipment.data = {**shipment.data, **body.values}
     shipment.changed_at = utcnow()
     session.commit()
-    return _one(session, shipment, folder, settings)
+    _notify(rt, EventNames.SHIPMENT_UPDATED, [{"shipment_id": shipment.id}])
+    return _one(rt, session, shipment)
 
 
 @router.post("/shipments/{shipment_id}/move", response_model=ShipmentOut)
-def move_shipment(
-    shipment_id: str, body: MoveIn, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> ShipmentOut:
+def move_shipment(shipment_id: str, body: MoveIn, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
     shipment = _shipment(session, shipment_id)
     if body.to == shipment.status:
-        return _one(session, shipment, folder, settings)
+        return _one(rt, session, shipment)
     if STAGE_IDS.index(body.to) >= STAGE_IDS.index(FOLDER_STAGE):
         if not shipment.folder_file:
             raise HTTPException(409, "Build the DO folder before moving this shipment to DO folder ready or later.")
-        if _stale(shipment, _profile(session)):
+        if service.stale(shipment, _profile(session)):
             raise HTTPException(409, "The documents changed after the DO folder was built. Build it again first.")
     today = date.today()
     if body.to == "do_requested" and shipment.requested_on is None:
         shipment.requested_on = today
     if body.to == "edo_received" and shipment.edo_received_on is None:
         shipment.edo_received_on = today
-    _log(session, shipment, "moved", f"Stage changed from {shipment.status} to {body.to}.")
-    shipment.status = body.to
+    service.move_to(session, shipment, body.to)
     session.commit()
-    return _one(session, shipment, folder, settings)
+    return _one(rt, session, shipment)
 
 
 @router.post("/shipments/{shipment_id}/slots/{slot_id}/file", response_model=ShipmentOut)
@@ -309,13 +340,12 @@ def upload_file(
     shipment_id: str,
     slot_id: str,
     session: SessionDep,
-    folder: FolderDep,
-    settings: SettingsDep,
+    rt: RuntimeDep,
     file: Annotated[UploadFile, File()],
 ) -> ShipmentOut:
     """Attaches a file to a slot. A file already there is kept in the history, not deleted."""
     shipment = _shipment(session, shipment_id)
-    slot = _slot(folder, shipment, slot_id)
+    slot = _slot(rt.folder, shipment, slot_id)
     if slot.doc.source == "fixed":
         raise HTTPException(409, f"{slot.doc.title} is the same for every shipment and can't be replaced here.")
     data = file.file.read(MAX_UPLOAD + 1)
@@ -324,63 +354,69 @@ def upload_file(
     if not data:
         raise HTTPException(422, "That file is empty.")
     try:
-        document = assemble.store_upload(settings, shipment, slot, file.filename or "upload.pdf", data)
+        document = assemble.store_upload(rt.settings, shipment, slot, file.filename or "upload.pdf", data)
     except pdfs.UnreadableFile as exc:
         raise HTTPException(422, str(exc)) from exc
-    previous = _attached(session, shipment, slot)
+    previous = service.attached(session, shipment, slot)
     if previous is not None:
         previous.current = False
     session.add(document)
     action = "replaced" if previous else "attached"
-    _log(session, shipment, action, f"{_slot_name(slot)}: {document.original_name}.")
+    service.log(session, shipment.id, action, f"{service.slot_name(slot)}: {document.original_name}.")
     shipment.changed_at = utcnow()
     session.commit()
-    return _one(session, shipment, folder, settings)
+    _notify(
+        rt,
+        EventNames.DOCUMENT_RECEIVED,
+        [{"shipment_id": shipment.id, "slot_id": slot.id, "document_id": document.id, "source": "upload"}],
+    )
+    return _one(rt, session, shipment)
 
 
 @router.delete("/shipments/{shipment_id}/slots/{slot_id}/file", response_model=ShipmentOut)
-def remove_file(
-    shipment_id: str, slot_id: str, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> ShipmentOut:
+def remove_file(shipment_id: str, slot_id: str, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
     """Takes the file out of the folder. The file itself is kept for the audit trail."""
     shipment = _shipment(session, shipment_id)
-    slot = _slot(folder, shipment, slot_id)
-    document = _attached(session, shipment, slot)
+    slot = _slot(rt.folder, shipment, slot_id)
+    document = service.attached(session, shipment, slot)
     if document is None:
         raise HTTPException(404, "There is no file attached there.")
     document.current = False
-    _log(session, shipment, "removed", f"{_slot_name(slot)}: {document.original_name}.")
+    service.log(session, shipment.id, "removed", f"{service.slot_name(slot)}: {document.original_name}.")
     shipment.changed_at = utcnow()
     session.commit()
-    return _one(session, shipment, folder, settings)
+    _notify(rt, EventNames.SHIPMENT_UPDATED, [{"shipment_id": shipment.id}])
+    return _one(rt, session, shipment)
 
 
 @router.post("/shipments/{shipment_id}/slots/{slot_id}/check", response_model=ShipmentOut)
-def check_by_eye(
-    shipment_id: str, slot_id: str, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> ShipmentOut:
+def check_by_eye(shipment_id: str, slot_id: str, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
     """The operator opened the file and confirms it belongs to this shipment."""
     shipment = _shipment(session, shipment_id)
-    slot = _slot(folder, shipment, slot_id)
-    document = _attached(session, shipment, slot)
+    slot = _slot(rt.folder, shipment, slot_id)
+    document = service.attached(session, shipment, slot)
     if document is None:
         raise HTTPException(404, "There is no file attached there.")
     document.checked_by_eye = True
-    _log(session, shipment, "checked", f"{_slot_name(slot)}: confirmed by eye.")
+    service.log(session, shipment.id, "checked", f"{service.slot_name(slot)}: confirmed by eye.")
     session.commit()
-    return _one(session, shipment, folder, settings)
+    _notify(rt, EventNames.SHIPMENT_UPDATED, [{"shipment_id": shipment.id}])
+    return _one(rt, session, shipment)
 
 
 @router.get("/shipments/{shipment_id}/slots/{slot_id}/preview")
-def preview_slot(
-    shipment_id: str, slot_id: str, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> Response:
+def preview_slot(shipment_id: str, slot_id: str, session: SessionDep, rt: RuntimeDep) -> Response:
     """The pages exactly as they will appear in the folder, stamps included."""
     shipment = _shipment(session, shipment_id)
-    slot = _slot(folder, shipment, slot_id)
+    slot = _slot(rt.folder, shipment, slot_id)
     try:
         pdf = assemble.slot_pdf(
-            folder, settings, slot, _attached(session, shipment, slot), _profile(session).data, shipment.data
+            rt.folder,
+            rt.settings,
+            slot,
+            service.attached(session, shipment, slot),
+            _profile(session).data,
+            shipment.data,
         )
     except (letters.MissingAsset, pdfs.UnreadableFile, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -390,53 +426,112 @@ def preview_slot(
 
 
 @router.get("/shipments/{shipment_id}/slots/{slot_id}/original")
-def original_file(shipment_id: str, slot_id: str, session: SessionDep, folder: FolderDep, settings: SettingsDep):
+def original_file(shipment_id: str, slot_id: str, session: SessionDep, rt: RuntimeDep) -> FileResponse:
     shipment = _shipment(session, shipment_id)
-    document = _attached(session, shipment, _slot(folder, shipment, slot_id))
+    document = service.attached(session, shipment, _slot(rt.folder, shipment, slot_id))
     if document is None:
         raise HTTPException(404, "There is no file attached there.")
-    path = assemble.shipment_dir(settings, shipment.id) / document.original_file
+    path = assemble.shipment_dir(rt.settings, shipment.id) / document.original_file
     if not path.is_file():
         raise HTTPException(404, "The stored file is missing.")
     return FileResponse(path, filename=document.original_name)
 
 
-@router.post("/shipments/{shipment_id}/build", response_model=ShipmentOut)
-def build_folder(
-    shipment_id: str, body: BuildIn, session: SessionDep, folder: FolderDep, settings: SettingsDep
-) -> ShipmentOut:
-    """Joins the folder into one PDF and moves the shipment to DO folder ready."""
+def _complete_and_start(
+    rt: Runtime, session: Session, shipment: Shipment, task_key: str, by: str, allowed: tuple[str, ...]
+) -> None:
+    """Completes the task, then sends the event that starts its workflow. If the
+    event can't be sent the task goes back to how it was."""
+    try:
+        before = tasks.complete(session, shipment.id, task_key, by=by, allowed=allowed)
+    except tasks.TaskConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    session.commit()
+    try:
+        _send(rt, EventNames.TASK_COMPLETED, [{"shipment_id": shipment.id, "task_key": task_key, "completed_by": by}])
+    except EngineUnavailable as exc:
+        tasks.restore(session, shipment.id, task_key, before)
+        session.commit()
+        raise HTTPException(503, ENGINE_DOWN) from exc
+
+
+@router.post("/shipments/{shipment_id}/build", response_model=ShipmentOut, status_code=202)
+def build_folder(shipment_id: str, body: BuildIn, session: SessionDep, rt: RuntimeDep) -> ShipmentOut:
+    """Ops confirm they reviewed the folder; the build workflow makes the PDF and
+    moves the shipment to DO folder ready. Poll the shipment until ``building`` clears."""
     if not body.confirmed:
         raise HTTPException(422, "Confirm that you have reviewed every document before building the folder.")
     shipment = _shipment(session, shipment_id)
     profile = _profile(session)
-    documents = _current_docs(session, shipment.id)
-    states = checks.folder_state(folder, shipment, documents, profile.data, settings.private_dir, _context(session))
-    open_slots = [s for s in states if s.status != "ok"]
-    if open_slots:
-        names = ", ".join(_slot_name(s.slot) for s in open_slots[:4])
-        more = f" and {len(open_slots) - 4} more" if len(open_slots) > 4 else ""
-        raise HTTPException(409, f"{len(open_slots)} documents need attention first: {names}{more}.")
-    try:
-        path = assemble.build_folder(folder, settings, shipment, documents, profile.data)
-    except (letters.MissingAsset, pdfs.UnreadableFile, ValueError) as exc:
-        raise HTTPException(409, str(exc)) from exc
-    shipment.folder_file = path.name
-    shipment.folder_built_at = utcnow()
-    _log(session, shipment, "built", f"DO folder built after review: {path.name}.")
-    if STAGE_IDS.index(shipment.status) < STAGE_IDS.index(FOLDER_STAGE):
-        _log(session, shipment, "moved", f"Stage changed from {shipment.status} to {FOLDER_STAGE}.")
-        shipment.status = FOLDER_STAGE
+    if service.is_building(tasks.get(session, shipment.id, tasks.FOLDER_REVIEW), shipment):
+        raise HTTPException(409, "The DO folder is already being built.")
+    if message := service.open_slots_message(service.slot_states(rt, session, shipment, profile)):
+        raise HTTPException(409, message)
+    by = body.by or "ops"
+    _complete_and_start(rt, session, shipment, tasks.FOLDER_REVIEW, by, allowed=tasks.STATUSES)
+    service.log(session, shipment.id, "task", f"Folder review confirmed by {by}. Building the DO folder.")
     session.commit()
-    return _one(session, shipment, folder, settings)
+    return _one(rt, session, shipment)
+
+
+@router.get("/shipments/{shipment_id}/tasks", response_model=list[TaskOut])
+def list_tasks(shipment_id: str, session: SessionDep) -> list[TaskOut]:
+    shipment = _shipment(session, shipment_id)
+    return [task_out(t) for t in tasks.for_shipment(session, shipment.id)]
+
+
+@router.post("/shipments/{shipment_id}/tasks/{task_key}/complete", response_model=ShipmentOut, status_code=202)
+def complete_task(
+    shipment_id: str, task_key: str, body: TaskCompleteIn, session: SessionDep, rt: RuntimeDep
+) -> ShipmentOut:
+    """Ops approve the DO request on ODeX (or confirm they raised it by hand)."""
+    if task_key == tasks.FOLDER_REVIEW:
+        raise HTTPException(409, "The folder review is confirmed by building the folder.")
+    if task_key != tasks.ODEX_DO_REQUEST:
+        raise HTTPException(404, "There is no such task.")
+    shipment = _shipment(session, shipment_id)
+    task = tasks.get(session, shipment.id, task_key)
+    if task is None or task.status == tasks.PENDING:
+        raise HTTPException(409, "Nothing to approve yet: build the DO folder first.")
+    by = body.by or "ops"
+    _complete_and_start(rt, session, shipment, task_key, by, allowed=(tasks.AWAITING_APPROVAL, tasks.FAILED))
+    if rt.settings.odex_automated:
+        service.log(session, shipment.id, "task", f"DO request on ODeX approved by {by}. The browser agent is raising it.")
+        session.commit()
+    return _one(rt, session, shipment)
+
+
+@router.get("/shipments/{shipment_id}/runs", response_model=list[RunOut])
+def list_runs(shipment_id: str, session: SessionDep) -> list[RunOut]:
+    """The browser agent's runs for this shipment, newest first."""
+    shipment = _shipment(session, shipment_id)
+    rows = session.scalars(
+        select(AutomationRun).where(AutomationRun.shipment_id == shipment.id).order_by(AutomationRun.started_at.desc())
+    )
+    return [
+        RunOut(
+            run_id=r.run_id,
+            sop_name=r.sop_name,
+            task_key=r.task_key,
+            status=r.status,
+            started_at=service.aware(r.started_at),
+            completed_at=service.aware(r.completed_at),
+            duration_seconds=r.duration_seconds,
+            completed_steps=r.completed_steps,
+            total_steps=r.total_steps,
+            error_message=r.error_message,
+            extractions=r.extractions or [],
+        )
+        for r in rows
+    ]
 
 
 @router.get("/shipments/{shipment_id}/folder.pdf")
-def download_folder(shipment_id: str, session: SessionDep, settings: SettingsDep) -> FileResponse:
+def download_folder(shipment_id: str, session: SessionDep, rt: RuntimeDep) -> FileResponse:
     shipment = _shipment(session, shipment_id)
-    if not shipment.folder_file:
+    path = service.folder_pdf_path(rt, shipment)
+    if path is None:
         raise HTTPException(404, "The DO folder has not been built yet.")
-    path = assemble.shipment_dir(settings, shipment.id) / "builds" / shipment.folder_file
     if not path.is_file():
         raise HTTPException(404, "The built PDF is missing. Build the folder again.")
     return FileResponse(path, media_type="application/pdf", filename=shipment.folder_file)
@@ -448,10 +543,10 @@ def list_events(shipment_id: str, session: SessionDep) -> list[EventOut]:
     rows = session.scalars(
         select(Event).where(Event.shipment_id == shipment.id).order_by(Event.at.desc(), Event.id.desc())
     )
-    return [EventOut(at=_aware(e.at), action=e.action, detail=e.detail) for e in rows]
+    return [EventOut(at=service.aware(e.at), action=e.action, detail=e.detail) for e in rows]
 
 
 @router.post("/demo/reset")
-def reset_demo_data(session: SessionDep, folder: FolderDep, settings: SettingsDep) -> dict[str, bool]:
-    seed_demo_data(session, folder, settings)
+def reset_demo_data(session: SessionDep, rt: RuntimeDep) -> dict[str, bool]:
+    seed_demo_data(session, rt.folder, rt.settings)
     return {"ok": True}

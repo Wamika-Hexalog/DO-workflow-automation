@@ -6,7 +6,19 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -79,6 +91,67 @@ class Event(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     action: Mapped[str] = mapped_column(String(40))
     detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class Task(Base):
+    """Something ops have to do or approve, python-brain style. The workflows signal
+    a task ready; completing it sends the event that starts the next workflow."""
+
+    __tablename__ = "tasks"
+    __table_args__ = (UniqueConstraint("shipment_id", "task_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[str] = mapped_column(ForeignKey("shipments.id"), index=True)
+    task_key: Mapped[str] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(30), default="pending")  # see tasks.STATUSES
+    note: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class IdempotencyKey(Base):
+    """Insert-once claim taken before a side effect outside the app, such as raising
+    a DO request on ODeX, so a replayed step can never do it twice."""
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    shipment_id: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="claimed")  # claimed, done, failed
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AutomationRun(Base):
+    """One browser agent run: python-brain's AutomationRun, kept in SQLite."""
+
+    __tablename__ = "automation_runs"
+
+    run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    shipment_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    task_key: Mapped[str | None] = mapped_column(String(60))
+    sop_name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running, completed, failed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    total_steps: Mapped[int] = mapped_column(Integer, default=0)
+    completed_steps: Mapped[int] = mapped_column(Integer, default=0)
+    total_llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    browserbase_session_id: Mapped[str | None] = mapped_column(String(120))
+    browserbase_live_url: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    extractions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    llm_decisions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    stagehand_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    self_healing_events: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
 def make_sessionmaker(database_url: str) -> sessionmaker:

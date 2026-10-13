@@ -40,6 +40,7 @@ export const api = {
   profile: () => request("GET", "/profile"),
   saveProfile: (values) => request("PATCH", "/profile", { values }),
   shipments: () => request("GET", "/shipments"),
+  shipment: (id) => request("GET", `/shipments/${id}`),
   createShipment: () => request("POST", "/shipments", {}),
   saveValues: (id, values) => request("PATCH", `/shipments/${id}/values`, { values }),
   move: (id, to) => request("POST", `/shipments/${id}/move`, { to }),
@@ -50,7 +51,9 @@ export const api = {
   },
   remove: (id, slotId) => request("DELETE", `${slotPath(id, slotId)}/file`),
   checkByEye: (id, slotId) => request("POST", `${slotPath(id, slotId)}/check`),
+  // Both start a workflow and answer at once; poll the shipment for the outcome.
   build: (id) => request("POST", `/shipments/${id}/build`, { confirmed: true }),
+  completeTask: (id, key) => request("POST", `/shipments/${id}/tasks/${key}/complete`, {}),
   events: (id) => request("GET", `/shipments/${id}/events`),
   resetDemo: () => request("POST", "/demo/reset"),
 };

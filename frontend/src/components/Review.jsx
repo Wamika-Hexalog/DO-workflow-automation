@@ -10,8 +10,51 @@ function seenKey(slot, shipment) {
   return `${slot.id}:${JSON.stringify(shipment.values)}`;
 }
 
+// After the build: the DO request on ODeX, waiting for ops, running, failed or done.
+function DoRequest({ shipment, automated, onApprove, approving }) {
+  const task = shipment.tasks.find((t) => t.key === "odex_do_request");
+  if (!task || task.status === "pending") return null;
+  const requested = shipment.status === "do_requested" || shipment.status === "edo_received";
+  if (task.status === "awaiting_approval") {
+    return (
+      <div className="notice">
+        <strong>DO request on ODeX.</strong> {task.note}
+        <div className="slot-actions">
+          <button type="button" className="btn btn-primary" disabled={approving} onClick={onApprove}>
+            {approving ? "Starting…" : automated ? "Approve and raise it on ODeX" : "I've raised it on ODeX"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (task.status === "failed") {
+    return (
+      <div className="notice warn">
+        <strong>The DO request didn't go through.</strong> {task.note}
+        <div className="slot-actions">
+          <button type="button" className="btn" disabled={approving} onClick={onApprove}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!requested) {
+    return (
+      <div className="notice">
+        <strong>{automated ? "Raising the DO request on ODeX…" : "Recording the DO request…"}</strong>
+      </div>
+    );
+  }
+  return (
+    <div className="notice">
+      <strong>DO request raised.</strong> {task.note}
+    </div>
+  );
+}
+
 // `seen` lives in the shipment view, so stepping out to fix a field keeps the progress.
-export default function Review({ shipment, seen, setSeen, onBuild, goTo, building }) {
+export default function Review({ shipment, seen, setSeen, onBuild, goTo, building, automated, onApprove, approving }) {
   const [current, setCurrent] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -52,6 +95,16 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
             </>
           )}
         </div>
+      )}
+
+      {shipment.building && (
+        <div className="notice">
+          <strong>Building the DO folder…</strong> The PDF downloads when it's ready.
+        </div>
+      )}
+
+      {folder && !folder.stale && (
+        <DoRequest shipment={shipment} automated={automated} onApprove={onApprove} approving={approving} />
       )}
 
       {open > 0 && (
@@ -134,7 +187,7 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
         <button
           type="button"
           className="btn btn-primary"
-          disabled={!confirmed || unseen > 0 || open > 0 || building}
+          disabled={!confirmed || unseen > 0 || open > 0 || building || shipment.building}
           onClick={async () => {
             if (await onBuild()) setConfirmed(false);
           }}

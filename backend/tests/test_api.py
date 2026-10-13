@@ -1,93 +1,27 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
 from pypdf import PdfReader
-from reportlab.pdfgen import canvas
 
-from app.config import BACKEND_DIR, Settings
 from app.containers import check_digit, problem
 from app.folder import FolderError, load_folder
 from app.main import create_app
-
-MBL = "GGZ3193024"
-HBL = "MSEC260803047251"
-
-
-def make_pdf(*pages: str) -> bytes:
-    """A PDF standing in for an emailed document: the given line on each page,
-    above the kind of boilerplate every real one carries."""
-    buffer = io.BytesIO()
-    sheet = canvas.Canvas(buffer)
-    for text in pages:
-        sheet.drawString(72, 720, text)
-        sheet.drawString(72, 120, "CMA CGM AGENCIES (INDIA) PVT LTD, ONE INTERNATIONAL CENTRE, MUMBAI 400013")
-        sheet.showPage()
-    sheet.save()
-    return buffer.getvalue()
-
-
-def make_image() -> bytes:
-    buffer = io.BytesIO()
-    Image.new("RGB", (400, 300), "white").save(buffer, "PNG")
-    return buffer.getvalue()
-
-
-@pytest.fixture()
-def private_dir(tmp_path: Path) -> Path:
-    """Stand-ins for the real stamps and bonds, which are kept out of git."""
-    private = tmp_path / "private"
-    (private / "stamps").mkdir(parents=True)
-    for name in ("hexalog", "jai_shri", "envogue"):
-        Image.new("RGBA", (120, 120), (40, 40, 200, 160)).save(private / "stamps" / f"{name}.png")
-    (private / "bonds.pdf").write_bytes(make_pdf("CLIENT BOND ENVOGUE", "CONSIGNEE BOND HEXALOG"))
-    return private
-
-
-def settings_for(tmp_path: Path, private: Path, seed: bool = False) -> Settings:
-    return Settings(
-        database_url=f"sqlite:///{tmp_path / 'test.db'}",
-        folder_path=BACKEND_DIR / "do_folder.yaml",
-        assets_dir=BACKEND_DIR / "assets",
-        private_dir=private,
-        storage_dir=tmp_path / "files",
-        frontend_dist=tmp_path / "no-frontend",
-        demo_docs_dir=tmp_path / "no-demo-docs",
-        seed_demo_data=seed,
-    )
-
-
-@pytest.fixture()
-def api(tmp_path: Path, private_dir: Path):
-    with TestClient(create_app(settings_for(tmp_path, private_dir))) as client:
-        yield client
-
-
-def new_shipment(api: TestClient, **values) -> dict:
-    defaults = dict(mbl_no=MBL, hbl_nos=HBL, containers="TCNU5191327", vessel="OOCL SINGAPORE", voyage="0FBI5W1MA")
-    return api.post("/api/shipments", json={"values": {**defaults, **values}}).json()
-
-
-def attach(api: TestClient, shipment: dict, slot_id: str, data: bytes, name: str = "file.pdf") -> dict:
-    response = api.post(f"/api/shipments/{shipment['id']}/slots/{slot_id}/file", files={"file": (name, data)})
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def slot(shipment: dict, slot_id: str) -> dict:
-    return next(s for s in shipment["slots"] if s["id"] == slot_id)
-
-
-def attach_everything(api: TestClient, s: dict) -> dict:
-    s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
-    s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL} sheet 1", f"MASTER BILL {MBL} sheet 2"))
-    s = attach(api, s, "security_receipt", make_pdf(f"SECURITY RECEIPT 40,000 BL {MBL}"))
-    s = attach(api, s, f"security_odex_receipt:{HBL}", make_pdf(f"SECURITY DEPOSIT SLIP B/L No. {HBL}"))
-    return attach(api, s, "do_receipt", make_pdf(f"DO RECEIPT 54,720.68 BL {MBL}"))
+from conftest import (
+    HBL,
+    MBL,
+    RecordingInngest,
+    attach,
+    attach_everything,
+    build,
+    make_image,
+    make_pdf,
+    new_shipment,
+    settings_for,
+    slot,
+)
 
 
 def test_container_check_digit():
@@ -193,7 +127,7 @@ def test_files_that_are_not_documents_are_refused(api):
     assert fixed.status_code == 409
 
 
-def test_build_needs_review_and_every_document(api):
+def test_build_needs_review_and_every_document(api, engine):
     s = new_shipment(api)
     assert api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": True}).status_code == 409
 
@@ -201,8 +135,8 @@ def test_build_needs_review_and_every_document(api):
     assert s["ready"] and s["docs_ok"] == 12
     assert api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": False}).status_code == 422
 
-    s = api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": True}).json()
-    assert s["status"] == "folder_ready" and s["folder"]["stale"] is False
+    s = build(api, engine, s)
+    assert s["status"] == "folder_ready" and s["folder"]["stale"] is False and s["building"] is False
 
     pdf = PdfReader(io.BytesIO(api.get(s["folder"]["url"]).content))
     texts = [page.extract_text() for page in pdf.pages]
@@ -217,12 +151,12 @@ def test_build_needs_review_and_every_document(api):
     assert stamped == [True, True, False, False, False]
 
 
-def test_moving_past_folder_ready_needs_an_up_to_date_folder(api):
+def test_moving_past_folder_ready_needs_an_up_to_date_folder(api, engine):
     s = attach_everything(api, new_shipment(api))
     refused = api.post(f"/api/shipments/{s['id']}/move", json={"to": "do_requested"})
     assert refused.status_code == 409 and "Build the DO folder" in refused.json()["detail"]
 
-    api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": True})
+    build(api, engine, s)
     moved = api.post(f"/api/shipments/{s['id']}/move", json={"to": "do_requested"}).json()
     assert moved["status"] == "do_requested" and moved["requested_on"]
 
@@ -233,9 +167,8 @@ def test_moving_past_folder_ready_needs_an_up_to_date_folder(api):
     assert api.post(f"/api/shipments/{s['id']}/move", json={"to": "invoice_paid"}).status_code == 200
 
 
-def test_fixed_details_feed_every_letter(api):
-    s = api.post(f"/api/shipments/{attach_everything(api, new_shipment(api))['id']}/build", json={"confirmed": True})
-    s = s.json()
+def test_fixed_details_feed_every_letter(api, engine):
+    s = build(api, engine, attach_everything(api, new_shipment(api)))
     api.patch("/api/profile", json={"values": {"do_collector": "MR. RAHUL SINGH"}})
     s = api.get(f"/api/shipments/{s['id']}").json()
     assert s["folder"]["stale"] is True
@@ -256,24 +189,24 @@ def test_a_generated_letter_can_be_replaced_by_the_signed_copy(api):
 
 def test_a_missing_stamp_blocks_the_folder(tmp_path, private_dir):
     (private_dir / "stamps" / "envogue.png").unlink()
-    with TestClient(create_app(settings_for(tmp_path, private_dir))) as api:
+    with TestClient(create_app(settings_for(tmp_path, private_dir), RecordingInngest())) as api:
         s = new_shipment(api)
         setup = [f["message"] for f in slot(s, f"hbl:{HBL}")["flags"] if f["kind"] == "setup"]
         assert setup == ["The Envogue Styles stamp is missing. Run `make assets`."]
         assert slot(s, "mbl")["flags"] == [{"kind": "missing", "message": "Not received yet.", "can_check": False}]
 
 
-def test_every_change_lands_in_the_audit_trail(api):
+def test_every_change_lands_in_the_audit_trail(api, engine):
     s = attach_everything(api, new_shipment(api))
     s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL} corrected"))
-    api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": True})
+    build(api, engine, s)
     actions = [e["action"] for e in api.get(f"/api/shipments/{s['id']}/events").json()]
-    assert actions[:3] == ["moved", "built", "replaced"] and actions[-1] == "created"
+    assert actions[:4] == ["moved", "built", "task", "replaced"] and actions[-1] == "created"
     assert actions.count("attached") == 5
 
 
 def test_demo_data_resets(tmp_path, private_dir):
-    with TestClient(create_app(settings_for(tmp_path, private_dir, seed=True))) as api:
+    with TestClient(create_app(settings_for(tmp_path, private_dir, seed=True), RecordingInngest())) as api:
         board = api.get("/api/shipments").json()
         assert [s["job_no"][-4:] for s in board] == ["0438", "0436", "0434", "0431"]
         api.post("/api/shipments", json={})

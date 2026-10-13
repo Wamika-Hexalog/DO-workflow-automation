@@ -15,6 +15,7 @@ dependencies = [
     "reportlab==5.0.1",
     "pillow==12.3.0",
     "python-multipart==0.0.32",
+    "inngest==0.5.17",
 ]
 
 [dependency-groups]
@@ -30,3 +31,8 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = [
+    # Raised inside the Inngest SDK, not by this app.
+    "ignore:Support for class-based `config` is deprecated:DeprecationWarning:inngest",
+    "ignore:There is no current event loop:DeprecationWarning:inngest",
+]

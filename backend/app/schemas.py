@@ -24,6 +24,11 @@ class MoveIn(BaseModel):
 
 class BuildIn(BaseModel):
     confirmed: bool = False  # the operator has reviewed every document
+    by: str | None = None  # who confirmed it; there is no login yet
+
+
+class TaskCompleteIn(BaseModel):
+    by: str | None = None  # who completed it; there is no login yet
 
 
 class ProfileOut(BaseModel):
@@ -68,6 +73,16 @@ class FolderOut(BaseModel):
     stale: bool
 
 
+class TaskOut(BaseModel):
+    key: str
+    title: str
+    status: Literal["pending", "awaiting_approval", "completed", "failed"]
+    note: str
+    completed_at: datetime | None
+    completed_by: str | None
+    result: dict[str, Any]
+
+
 class ShipmentOut(BaseModel):
     id: str
     job_no: str
@@ -81,6 +96,8 @@ class ShipmentOut(BaseModel):
     docs_total: int
     ready: bool
     folder: FolderOut | None
+    building: bool  # ops confirmed the folder and the build is under way
+    tasks: list[TaskOut]
     requested_on: date | None
     edo_received_on: date | None
     updated_at: datetime
@@ -90,3 +107,17 @@ class EventOut(BaseModel):
     at: datetime
     action: str
     detail: str
+
+
+class RunOut(BaseModel):
+    run_id: str
+    sop_name: str
+    task_key: str | None
+    status: Literal["running", "completed", "failed"]
+    started_at: datetime
+    completed_at: datetime | None
+    duration_seconds: int | None
+    completed_steps: int
+    total_steps: int
+    error_message: str | None
+    extractions: list[dict[str, Any]]

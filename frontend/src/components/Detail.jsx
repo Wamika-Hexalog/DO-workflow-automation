@@ -87,6 +87,8 @@ export default function Detail({
   onMove,
   onBuild,
   building,
+  onApproveDoRequest,
+  approving,
   onShipmentSaved,
   onProfileSaved,
   say,
@@ -179,6 +181,9 @@ export default function Detail({
         setSeen={setReviewSeen}
         onBuild={() => onBuild(shipment.id)}
         building={building}
+        automated={Boolean(folder.odex && folder.odex.automated)}
+        onApprove={() => onApproveDoRequest(shipment.id)}
+        approving={approving}
         goTo={goTo}
       />
     );

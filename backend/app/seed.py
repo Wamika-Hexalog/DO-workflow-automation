@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from . import assemble
 from .config import Settings
-from .db import Document, Event, Profile, Shipment
+from .db import AutomationRun, Document, Event, IdempotencyKey, Profile, Shipment, Task
 from .folder import Folder
 
 PROFILE_ID = "default"
@@ -68,6 +68,9 @@ def ensure_profile(session: Session, folder: Folder) -> None:
 def seed_demo_data(session: Session, folder: Folder, settings: Settings) -> None:
     """Replaces everything in the database, and every stored file, with the demo data."""
     session.execute(delete(Event))
+    session.execute(delete(Task))
+    session.execute(delete(IdempotencyKey))
+    session.execute(delete(AutomationRun))
     session.execute(delete(Document))
     session.execute(delete(Shipment))
     session.execute(delete(Profile))
