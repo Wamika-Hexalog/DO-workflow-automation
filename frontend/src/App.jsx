@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import Board from "./components/Board.jsx";
 import Detail from "./components/Detail.jsx";
 import TopBar from "./components/TopBar.jsx";
-import { indexDoSet } from "./lib/doSet.js";
+import { indexFolder } from "./lib/folder.js";
 
 function download(doc) {
   const link = document.createElement("a");
@@ -15,25 +15,26 @@ function download(doc) {
 }
 
 export default function App() {
-  const [doSet, setDoSet] = useState(null);
-  const [client, setClient] = useState(null);
+  const [folder, setFolder] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [shipments, setShipments] = useState([]);
   const [load, setLoad] = useState({ state: "loading" });
   const [openId, setOpenId] = useState(null);
   const [section, setSection] = useState("shipment");
   const [focusKey, setFocusKey] = useState(null);
+  const [focusSlot, setFocusSlot] = useState(null);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);
   const [boardFocus, setBoardFocus] = useState(null);
-  const [flashId, setFlashId] = useState(null);
+  const [building, setBuilding] = useState(false);
 
   const say = useCallback((msg) => setToast({ msg, at: Date.now() }), []);
 
   const loadAll = useCallback(async () => {
     try {
-      const [rawDoSet, clientData, list] = await Promise.all([api.doSet(), api.client(), api.shipments()]);
-      setDoSet(indexDoSet(rawDoSet));
-      setClient(clientData);
+      const [rawFolder, profileData, list] = await Promise.all([api.folder(), api.profile(), api.shipments()]);
+      setFolder(indexFolder(rawFolder));
+      setProfile(profileData);
       setShipments(list);
       setLoad({ state: "ready" });
     } catch (err) {
@@ -47,23 +48,17 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(null), 4200);
+    const timer = setTimeout(() => setToast(null), 4800);
     return () => clearTimeout(timer);
   }, [toast]);
-
-  useEffect(() => {
-    if (!flashId) return undefined;
-    const timer = setTimeout(() => setFlashId(null), 1800);
-    return () => clearTimeout(timer);
-  }, [flashId]);
 
   const replaceShipment = useCallback((updated) => {
     setShipments((list) => list.map((s) => (s.id === updated.id ? updated : s)));
   }, []);
 
-  // A client profile change affects every shipment's completion, so the board is reloaded.
-  const onClientSaved = useCallback(async (updated) => {
-    setClient(updated);
+  // The fixed details feed every shipment's letters, so the board is reloaded.
+  const onProfileSaved = useCallback(async (updated) => {
+    setProfile(updated);
     setShipments(await api.shipments());
   }, []);
 
@@ -71,18 +66,23 @@ export default function App() {
     (id) => {
       const s = shipments.find((x) => x.id === id);
       if (!s) return;
-      const detailsDone = doSet.shipmentFields.every((f) => s.field_status[f.key] === "ok");
-      const firstOpen = s.pages.findIndex((p) => p.status !== "done");
-      setSection(!detailsDone || firstOpen === -1 ? "shipment" : s.pages[firstOpen].id);
+      const detailsDone = folder.shipmentFields.every((f) => f.optional || s.field_status[f.key] === "ok");
+      setSection(!detailsDone ? "shipment" : s.ready ? "review" : "documents");
       setOpenId(id);
     },
-    [shipments, doSet],
+    [shipments, folder],
   );
 
-  const back = useCallback(() => {
+  // A file attached in one job can raise or clear a duplicate flag in another.
+  const back = useCallback(async () => {
     setBoardFocus(openId);
     setOpenId(null);
-  }, [openId]);
+    try {
+      setShipments(await api.shipments());
+    } catch (err) {
+      say(err.message);
+    }
+  }, [openId, say]);
 
   const moveTo = useCallback(
     async (id, to) => {
@@ -95,23 +95,25 @@ export default function App() {
     [replaceShipment, say],
   );
 
-  const generate = useCallback(
+  const build = useCallback(
     async (id) => {
       const before = shipments.find((s) => s.id === id);
+      setBuilding(true);
       try {
-        const updated = await api.generate(id);
+        const updated = await api.build(id);
         replaceShipment(updated);
-        if (updated.document) download(updated.document);
-        if (before && before.status === "pending" && updated.status === "ready") {
-          setOpenId(null);
-          setBoardFocus(id);
-          setFlashId(id);
-          say("DO set generated and downloaded. The shipment moved to Docs ready.");
+        if (updated.folder) download(updated.folder);
+        if (before && before.status !== updated.status) {
+          say("DO folder built and downloaded. The job moved to DO folder ready.");
         } else {
-          say("DO set generated and downloaded.");
+          say("DO folder built and downloaded.");
         }
+        return true;
       } catch (err) {
         say(err.message);
+        return false;
+      } finally {
+        setBuilding(false);
       }
     },
     [shipments, replaceShipment, say],
@@ -124,7 +126,7 @@ export default function App() {
       setQuery("");
       setSection("shipment");
       setOpenId(created.id);
-      setFocusKey("bl_no");
+      setFocusKey("mbl_no");
     } catch (err) {
       say(err.message);
     }
@@ -167,39 +169,33 @@ export default function App() {
   const current = openId ? shipments.find((s) => s.id === openId) : null;
   return (
     <div className="app">
-      <TopBar
-        clientName={client.name}
-        query={query}
-        setQuery={setQuery}
-        showSearch={!current}
-        onNew={newShipment}
-        onReset={reset}
-      />
+      <TopBar query={query} setQuery={setQuery} showSearch={!current} onNew={newShipment} onReset={reset} />
       {current ? (
         <Detail
           key={current.id}
-          doSet={doSet}
-          client={client}
+          folder={folder}
+          profile={profile}
           shipment={current}
           section={section}
           setSection={setSection}
           focusKey={focusKey}
           setFocusKey={setFocusKey}
+          focusSlot={focusSlot}
+          setFocusSlot={setFocusSlot}
           onBack={back}
           onMove={moveTo}
-          onGenerate={generate}
+          onBuild={build}
+          building={building}
           onShipmentSaved={replaceShipment}
-          onClientSaved={onClientSaved}
+          onProfileSaved={onProfileSaved}
           say={say}
         />
       ) : (
         <Board
-          stages={doSet.stages}
+          stages={folder.stages}
           shipments={shipments}
-          clientName={client.name}
           query={query}
           focusId={boardFocus}
-          flashId={flashId}
           onOpen={open}
           onMove={moveTo}
         />

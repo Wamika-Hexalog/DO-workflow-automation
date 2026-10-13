@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useAutosave } from "../hooks/useAutosave.js";
-import { sectionTitle } from "../lib/doSet.js";
-import { fmtMoment, fmtShort, ISO_DATE } from "../lib/format.js";
-import PageStrip from "./PageStrip.jsx";
-import { FixedForm, PageForm, ShipmentForm } from "./Sections.jsx";
+import { profileDone, requiredFieldsDone, SECTIONS, sectionTitle } from "../lib/folder.js";
+import { fmtMoment, plural, splitLines } from "../lib/format.js";
+import DocStrip from "./DocStrip.jsx";
+import FolderList from "./FolderList.jsx";
+import { FixedForm, ShipmentForm } from "./Forms.jsx";
+import History from "./History.jsx";
+import Review from "./Review.jsx";
 
 function Check() {
   return (
@@ -21,7 +24,7 @@ function Check() {
   );
 }
 
-function NavItem({ num, label, active, done, state, onClick }) {
+function NavItem({ label, active, done, state, warn, onClick }) {
   return (
     <button
       type="button"
@@ -29,9 +32,8 @@ function NavItem({ num, label, active, done, state, onClick }) {
       aria-current={active ? "true" : undefined}
       onClick={onClick}
     >
-      {num != null && <span className="num">{num}</span>}
       <span className="label">{label}</span>
-      <span className={`state${done ? " done" : ""}`}>
+      <span className={`state${done ? " done" : ""}${warn ? " warn" : ""}`}>
         {done ? (
           <>
             <Check />
@@ -72,38 +74,40 @@ function SaveState({ statuses }) {
 }
 
 export default function Detail({
-  doSet,
-  client,
+  folder,
+  profile,
   shipment,
   section,
   setSection,
   focusKey,
   setFocusKey,
+  focusSlot,
+  setFocusSlot,
   onBack,
   onMove,
-  onGenerate,
+  onBuild,
+  building,
   onShipmentSaved,
-  onClientSaved,
+  onProfileSaved,
   say,
 }) {
   const detailRef = useRef(null);
+  const [reviewSeen, setReviewSeen] = useState(() => new Set());
   const mainRef = useRef(null);
   const shipmentEdits = useAutosave(async (changes) => onShipmentSaved(await api.saveValues(shipment.id, changes)));
-  const clientEdits = useAutosave(async (changes) => onClientSaved(await api.saveClient(changes)));
+  const profileEdits = useAutosave(async (changes) => onProfileSaved(await api.saveProfile(changes)));
   const { flush: flushShipment } = shipmentEdits;
-  const { flush: flushClient } = clientEdits;
+  const { flush: flushProfile } = profileEdits;
 
   const values = { ...shipment.values, ...shipmentEdits.edits };
-  const clientValues = { ...client.values, ...clientEdits.edits };
-  const complete = shipment.pages_done === shipment.pages_total;
-  const clientName = client.name;
+  const profileValues = { ...profile.values, ...profileEdits.edits };
 
   const saveAll = useCallback(async () => {
-    const results = await Promise.all([flushShipment(), flushClient()]);
+    const results = await Promise.all([flushShipment(), flushProfile()]);
     if (results.every(Boolean)) return true;
     say("Some changes are not saved yet. Check that the API is running, then try again.");
     return false;
-  }, [flushShipment, flushClient, say]);
+  }, [flushShipment, flushProfile, say]);
 
   const leave = useCallback(async () => {
     if (await saveAll()) onBack();
@@ -135,52 +139,63 @@ export default function Detail({
     return () => window.removeEventListener("keydown", onKey);
   }, [leave]);
 
-  const goTo = (target, key) => {
+  // Pending edits change the letters, so they are saved before leaving the forms.
+  const goTo = async (target, key) => {
+    if (target !== "shipment" && target !== "fixed") await saveAll();
     setSection(target);
     if (key) setFocusKey(key);
   };
 
-  const pendingKeys = new Set(Object.keys(shipmentEdits.edits));
-  const detailsFilled = doSet.shipmentFields.filter((f) => shipment.field_status[f.key] === "ok").length;
-  const fixedDone = doSet.client_fields.every((f) => shipment.field_status[f.key] === "ok");
+  const pickSlot = (slotId) => {
+    goTo("documents");
+    setFocusSlot(slotId);
+  };
+
+  const details = requiredFieldsDone(folder, shipment);
+  const hbls = splitLines(values.hbl_nos);
+  const built = shipment.folder;
+  const vessel = [values.vessel, values.voyage].filter(Boolean).join(" ");
 
   let content;
   if (section === "fixed") {
+    content = <FixedForm folder={folder} values={profileValues} setValue={profileEdits.setValue} />;
+  } else if (section === "documents") {
     content = (
-      <FixedForm doSet={doSet} clientName={clientName} values={clientValues} setValue={clientEdits.setValue} goTo={goTo} />
-    );
-  } else if (section === "shipment") {
-    content = (
-      <ShipmentForm
-        doSet={doSet}
-        clientName={clientName}
-        values={values}
-        setValue={shipmentEdits.setValue}
-        issues={shipment.issues}
-        pendingKeys={pendingKeys}
+      <FolderList
+        folder={folder}
+        shipment={shipment}
+        focusSlot={focusSlot}
+        setFocusSlot={setFocusSlot}
+        onShipment={onShipmentSaved}
+        say={say}
         goTo={goTo}
       />
     );
-  } else {
-    const index = doSet.pages.findIndex((p) => p.id === section);
+  } else if (section === "review") {
     content = (
-      <PageForm
-        key={section}
-        doSet={doSet}
-        clientName={clientName}
-        page={doSet.pages[index]}
-        index={index}
-        values={values}
-        clientValues={clientValues}
-        progress={shipment.pages[index]}
-        fieldStatus={shipment.field_status}
-        setValue={shipmentEdits.setValue}
+      <Review
+        shipment={shipment}
+        seen={reviewSeen}
+        setSeen={setReviewSeen}
+        onBuild={() => onBuild(shipment.id)}
+        building={building}
         goTo={goTo}
+      />
+    );
+  } else if (section === "history") {
+    content = <History shipment={shipment} stageNames={folder.stageNames} />;
+  } else {
+    content = (
+      <ShipmentForm
+        folder={folder}
+        values={values}
+        setValue={shipmentEdits.setValue}
+        issues={shipment.issues}
+        pendingKeys={new Set(Object.keys(shipmentEdits.edits))}
       />
     );
   }
 
-  const vessel = [values.vessel, values.voyage].filter(Boolean).join(" ");
   return (
     <div className="detail" ref={detailRef}>
       <header className="d-head">
@@ -188,7 +203,7 @@ export default function Detail({
           <button type="button" className="btn btn-quiet back" onClick={leave}>
             Back to board
           </button>
-          <SaveState statuses={[shipmentEdits.status, clientEdits.status]} />
+          <SaveState statuses={[shipmentEdits.status, profileEdits.status]} />
           <span className="spacer" />
           <label className="stage-pick">
             <span>Stage</span>
@@ -200,98 +215,92 @@ export default function Detail({
                 if (await saveAll()) onMove(shipment.id, to);
               }}
             >
-              {doSet.stages.map((stage) => (
+              {folder.stages.map((stage) => (
                 <option key={stage.id} value={stage.id}>
                   {stage.name}
                 </option>
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!complete}
-            onClick={async () => {
-              if (await saveAll()) onGenerate(shipment.id);
-            }}
-          >
-            Generate DO set
+          <button type="button" className="btn btn-primary" onClick={() => goTo("review")}>
+            Review and build
           </button>
         </div>
-        <h2 className={`d-title${values.bl_no ? "" : " muted"}`}>{values.bl_no || "New shipment"}</h2>
+        <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
         <div className="d-meta">
           <span><em>Job</em>{shipment.job_no}</span>
-          <span><em>Line</em>{values.shipping_line || "Not set"}</span>
           <span><em>Vessel</em>{vessel || "Not set"}</span>
-          <span><em>ETA</em>{values.eta && ISO_DATE.test(values.eta) ? fmtShort(values.eta) : "Not set"}</span>
+          <span><em>HBL</em>{hbls.length ? hbls.join(", ") : "Not set"}</span>
           {shipment.owner && <span><em>Owner</em>{shipment.owner}</span>}
         </div>
         <div className="d-progress">
-          <PageStrip
-            large
-            pages={shipment.pages}
-            titles={doSet.pageTitles}
-            current={section}
-            onPick={(id) => goTo(id)}
-          />
+          <DocStrip large slots={shipment.slots} onPick={pickSlot} />
           <p>
             <strong>
-              {shipment.pages_done} of {shipment.pages_total} pages complete.
+              {shipment.docs_ok} of {shipment.docs_total} documents ready.
             </strong>{" "}
-            {complete ? "Ready to generate the DO set." : "Generate unlocks when every page is complete."}
-            {shipment.document && (
+            {built && !built.stale && (
               <>
-                {" "}Last generated {fmtMoment(shipment.document.generated_at)}.{" "}
-                <a className="linkbtn" href={shipment.document.url} download={shipment.document.filename}>
-                  Download
+                Folder built {fmtMoment(built.built_at)}.{" "}
+                <a className="linkbtn" href={built.url} download={built.filename}>
+                  Download PDF
                 </a>
               </>
             )}
+            {built && built.stale && "The built folder is out of date."}
+            {!built && (shipment.ready ? "Ready to review and build." : "The folder can be built once all are ready.")}
           </p>
         </div>
       </header>
       <div className="d-body">
         <nav className="nav" aria-label="Sections">
           <NavItem
-            label={`Fixed for ${clientName}`}
+            label="Shipment details"
+            active={section === "shipment"}
+            done={details.done === details.total}
+            state={`${details.done}/${details.total}`}
+            onClick={() => goTo("shipment")}
+          />
+          <NavItem
+            label="Fixed details"
             active={section === "fixed"}
-            done={fixedDone}
+            done={profileDone(folder, shipment)}
             state="Check"
             onClick={() => goTo("fixed")}
           />
+          <p className="nav-label">DO folder</p>
           <NavItem
-            label="Shipment details"
-            active={section === "shipment"}
-            done={detailsFilled === doSet.shipmentFields.length}
-            state={`${detailsFilled}/${doSet.shipmentFields.length}`}
-            onClick={() => goTo("shipment")}
+            label="Documents"
+            active={section === "documents"}
+            done={shipment.ready}
+            state={`${shipment.docs_ok}/${shipment.docs_total}`}
+            onClick={() => goTo("documents")}
           />
-          <p className="nav-label">Pages in the DO set</p>
-          <p className="nav-note">Placeholder names and fields until the real set arrives.</p>
-          {doSet.pages.map((page, i) => (
-            <NavItem
-              key={page.id}
-              num={i + 1}
-              label={page.title}
-              active={section === page.id}
-              done={shipment.pages[i].status === "done"}
-              state={`${shipment.pages[i].filled}/${shipment.pages[i].total}`}
-              onClick={() => goTo(page.id)}
-            />
-          ))}
+          <NavItem
+            label="Review and build"
+            active={section === "review"}
+            done={built && !built.stale}
+            warn={built && built.stale}
+            state={built ? "Out of date" : ""}
+            onClick={() => goTo("review")}
+          />
+          <NavItem label="History" active={section === "history"} state="" onClick={() => goTo("history")} />
+          <p className="nav-note">
+            {plural(shipment.docs_total, "document")} for MBL {values.mbl_no || "not set"}
+            {hbls.length > 1 ? `, with HBL documents once for each of ${hbls.length} house bills.` : "."}
+          </p>
         </nav>
         <div className="main" ref={mainRef}>
-          <div className="main-inner">
+          <div className={`main-inner${section === "review" ? " wide" : ""}`}>
             <select
               className="input mobile-nav"
               aria-label="Section"
               value={section}
               onChange={(e) => goTo(e.target.value)}
             >
-              {doSet.sections.map((id, i) => (
+              {SECTIONS.map((id) => (
                 <option key={id} value={id}>
-                  {i > 1 ? `${i - 1}. ` : ""}
-                  {sectionTitle(doSet, id, clientName)}
+                  {sectionTitle(id)}
                 </option>
               ))}
             </select>

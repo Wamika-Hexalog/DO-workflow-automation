@@ -1,7 +1,7 @@
-import { splitContainers } from "../lib/format.js";
+import { plural, splitLines } from "../lib/format.js";
 
 function ContainerHint({ value, issues, pending }) {
-  const count = splitContainers(value).length;
+  const count = splitLines(value).length;
   if (!count) return <span className="hint">One per line. Check digits are verified automatically.</span>;
   if (pending) return <span className="hint">Checking the check digits…</span>;
   if (issues && issues.length) {
@@ -13,7 +13,13 @@ function ContainerHint({ value, issues, pending }) {
       </ul>
     );
   }
-  return <span className="hint ok">{count === 1 ? "1 container" : `${count} containers`}, check digits verified.</span>;
+  return <span className="hint ok">{plural(count, "container")}, check digits verified.</span>;
+}
+
+function ListHint({ value }) {
+  const count = splitLines(value).length;
+  if (!count) return <span className="hint">One per line. HBL documents are asked for once per house bill.</span>;
+  return <span className="hint">{plural(count, "house bill")}.</span>;
 }
 
 export default function Field({ field, value, onChange, uses, issues, pending }) {
@@ -30,7 +36,7 @@ export default function Field({ field, value, onChange, uses, issues, pending })
   }
 
   const className = `input${field.code ? " code" : ""}`;
-  const wide = field.type === "textarea" || field.type === "containers";
+  const wide = field.type === "textarea" || field.type === "containers" || field.type === "list";
   let control;
   if (field.type === "select") {
     control = (
@@ -48,7 +54,7 @@ export default function Field({ field, value, onChange, uses, issues, pending })
       <textarea
         id={id}
         className={className}
-        rows={3}
+        rows={field.type === "textarea" ? 3 : 2}
         value={value || ""}
         spellCheck={field.code ? false : undefined}
         onChange={(e) => onChange(e.target.value)}
@@ -73,11 +79,15 @@ export default function Field({ field, value, onChange, uses, issues, pending })
   return (
     <div className={`field${wide ? " wide" : ""}`}>
       <label htmlFor={id}>
-        <span>{field.label}</span>
-        {uses ? <span className="uses">{uses === 1 ? "on 1 page" : `on ${uses} pages`}</span> : null}
+        <span>
+          {field.label}
+          {field.optional && <span className="optional"> optional</span>}
+        </span>
+        {uses ? <span className="uses">{uses === 1 ? "in 1 letter" : `in ${uses} letters`}</span> : null}
       </label>
       {control}
       {field.type === "containers" && <ContainerHint value={value} issues={issues} pending={pending} />}
+      {field.type === "list" && <ListHint value={value} />}
     </div>
   );
 }

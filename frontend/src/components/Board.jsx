@@ -1,26 +1,16 @@
 import { useEffect, useState } from "react";
 import Card from "./Card.jsx";
 
-// Soonest ETA first; shipments without an ETA (usually new ones) on top.
-function byEta(a, b) {
-  const x = a.values.eta || "";
-  const y = b.values.eta || "";
-  if (x === y) return 0;
-  if (!x) return -1;
-  if (!y) return 1;
-  return x < y ? -1 : 1;
-}
-
 function matcher(query) {
   const q = query.trim().toLowerCase().replace(/\s+/g, "");
   if (!q) return () => true;
   return (s) =>
-    [s.job_no, s.values.bl_no, s.values.vessel, s.values.containers].some((v) =>
+    [s.job_no, s.values.mbl_no, s.values.hbl_nos, s.values.vessel, s.values.containers].some((v) =>
       String(v || "").toLowerCase().replace(/\s+/g, "").includes(q),
     );
 }
 
-export default function Board({ stages, shipments, clientName, query, focusId, flashId, onOpen, onMove }) {
+export default function Board({ stages, shipments, query, focusId, flashId, onOpen, onMove }) {
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
 
@@ -34,18 +24,19 @@ export default function Board({ stages, shipments, clientName, query, focusId, f
   }, [focusId]);
 
   const emptyText = {
-    pending: `New ${clientName} shipments start here.`,
-    ready: "Shipments move here once their DO set is generated.",
-    requested: "Drag a shipment here when its DO request goes to the line.",
-    received: "Drag a shipment here when the line issues the eDO.",
-    closed: "Drag a shipment here when the job is closed.",
+    igm_filed: "New jobs start here once CMA CGM files the IGM.",
+    invoice_paid: "Drag a job here once Finance pays the DO invoice and deposit.",
+    deposit_approved: "Drag a job here once ODeX shows the deposit approved.",
+    folder_ready: "Jobs land here when their DO folder is built.",
+    do_requested: "Drag a job here once the DO request is raised on ODeX.",
+    edo_received: "Drag a job here when the eDO arrives.",
   };
   const matches = matcher(query);
 
   return (
     <main className="board" aria-label="Shipments by DO stage">
       {stages.map((stage) => {
-        const cards = shipments.filter((s) => s.status === stage.id && matches(s)).sort(byEta);
+        const cards = shipments.filter((s) => s.status === stage.id && matches(s));
         return (
           <section key={stage.id} className="col" aria-label={stage.name}>
             <div className="route" aria-hidden="true">

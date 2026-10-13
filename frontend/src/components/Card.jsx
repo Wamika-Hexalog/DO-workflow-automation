@@ -1,10 +1,12 @@
-import { containerSummary, etaInfo, initials, stageNote } from "../lib/format.js";
-import PageStrip from "./PageStrip.jsx";
+import { openFlags } from "../lib/folder.js";
+import { initials, plural, shipmentFacts, stageNote } from "../lib/format.js";
+import DocStrip from "./DocStrip.jsx";
 
 export default function Card({ shipment, flash, dragging, onOpen, onDragStart, onDragEnd }) {
   const v = shipment.values;
-  const eta = etaInfo(shipment);
   const note = stageNote(shipment);
+  const flags = openFlags(shipment);
+  const stale = shipment.folder && shipment.folder.stale;
   const classes = ["card", dragging && "dragging", flash && "flash"].filter(Boolean).join(" ");
   return (
     <div
@@ -13,7 +15,7 @@ export default function Card({ shipment, flash, dragging, onOpen, onDragStart, o
       role="button"
       tabIndex={0}
       draggable
-      aria-label={`Open ${v.bl_no || shipment.job_no}`}
+      aria-label={`Open ${v.mbl_no || shipment.job_no}`}
       onClick={() => onOpen(shipment.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -32,20 +34,27 @@ export default function Card({ shipment, flash, dragging, onOpen, onDragStart, o
           </span>
         )}
       </div>
-      <div className={`bl${v.bl_no ? "" : " muted"}`}>{v.bl_no || "No BL number yet"}</div>
+      <div className={`bl${v.mbl_no ? "" : " muted"}`}>{v.mbl_no || "No MBL number yet"}</div>
       <div className="vessel">
         {v.vessel || "Vessel not set"}
         {v.voyage && <span> {v.voyage}</span>}
       </div>
       <div className="facts">
-        <span>{containerSummary(v)}</span>
-        <span className={`eta${eta.urgent ? " urgent" : ""}`}>{eta.text}</span>
+        {shipmentFacts(v).map((fact) => (
+          <span key={fact}>{fact}</span>
+        ))}
       </div>
+      {(flags > 0 || stale) && (
+        <div className="badges">
+          {flags > 0 && <span className="badge warn">{plural(flags, "document")} to check</span>}
+          {stale && <span className="badge warn">Folder out of date</span>}
+        </div>
+      )}
       {note && <div className="note">{note}</div>}
       <div className="strip-row">
-        <PageStrip pages={shipment.pages} />
+        <DocStrip slots={shipment.slots} />
         <span className="count">
-          {shipment.pages_done}/{shipment.pages_total}
+          {shipment.docs_ok}/{shipment.docs_total}
         </span>
       </div>
     </div>
