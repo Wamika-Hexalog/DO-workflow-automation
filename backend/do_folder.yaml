@@ -1,0 +1,149 @@
+# The DO folder: the documents CMA CGM needs for a delivery order, in the order
+# they go into the combined PDF, and the fields the generated letters print.
+# Source: "DO PROCESS FLOW E2E.xlsx", sheet "DO Folder Document Collection".
+#
+# The UI is built from this file. If it has a mistake, the API refuses to start
+# and says what it is.
+#
+# Field types: text, textarea, date, number, select (needs options), checkbox,
+# containers (ISO 6346 numbers, one per line), list (one value per line).
+# code: true shows the value in capitals, for references like BL numbers.
+# optional: true means a blank value doesn't hold up the folder.
+# default: the value a new shipment starts with. "today" works for dates.
+
+date_format: "%d/%m/%Y"   # how dates are printed in the generated letters
+
+# The same for every shipment. Set once in the fixed details.
+profile_fields:
+  - { key: forwarder_name, label: Forwarder, default: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD }
+  - { key: forwarder_signatory, label: Forwarder signatory, default: VINEET MALIK }
+  - { key: forwarder_designation, label: Signatory designation, default: DIRECTOR }
+  - { key: forwarder_pan, label: Forwarder PAN, code: true, default: ABJCS8010P }
+  - { key: forwarder_tel, label: Consignee phone on the checklist, default: "8802757004" }
+  - { key: forwarder_email, label: Consignee email on the checklist, default: KISHAN@HEXALOG.IN }
+  - { key: cha_email, label: CHA email on the checklist, default: customs-ops@Hexalog.in }
+  - { key: do_collector, label: Person collecting the DO, default: MR. MUKESH KUMAR }
+  - { key: line_agent, label: Shipping line agent, default: CMA CGM AGENCIES INDIA PVT LTD }
+  - key: line_agent_address
+    label: Line agent address
+    type: textarea
+    default: "A-32, Genesis Building, Ground floor, Mohan Coop Industrial Estate, Mathura Road, New Delhi – 110044"
+
+# Entered once per shipment (one MBL) and printed by the letters that use them.
+shipment_groups:
+  - title: Bill of lading
+    fields:
+      - { key: mbl_no, label: Master B/L no., code: true }
+      - { key: hbl_nos, label: House B/L nos., type: list, code: true }
+      - { key: containers, label: Container nos., type: containers, code: true }
+      - { key: vessel, label: Vessel name }
+      - { key: voyage, label: Voyage, code: true }
+
+  - title: Parties
+    fields:
+      - { key: consignee_mbl, label: Consignee as per MBL, default: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD }
+      - { key: consignee_hbl, label: Consignee as per HBL, default: ENVOGUE STYLES GLOBAL LLP }
+      - { key: cha, label: CHA, default: JAY SHRI RAM DARBAR LOGISTICS (P) LTD }
+
+  - title: Letters
+    fields:
+      - { key: letter_date, label: Date on the letters, type: date, default: today }
+
+  - title: CMA CGM checklist
+    fields:
+      - { key: endorsed, label: Endorsed, type: select, options: [OBL, Waybill, TELEX Release], default: TELEX Release }
+      - { key: delivery_type, label: Delivery type, type: select, options: [Factory De-stuff, CFS De-stuff, LCL, DPD], default: Factory De-stuff }
+      - { key: loi_for, label: LOI for factory delivery, type: select, options: [MBL Consignee, HBL Consignee], default: MBL Consignee }
+      - { key: factory_location, label: Factory location, optional: true }
+      - { key: validity_required, label: Date of validity required, type: date, optional: true }
+      - { key: noc_from_forwarder, label: NOC from forwarder for HBL shipments, type: checkbox, optional: true, default: true }
+      - { key: hss, label: High seas sale, type: checkbox, optional: true }
+      - { key: hss_documents, label: HSS documents and LOI, type: checkbox, optional: true }
+      - { key: payment_mode, label: Mode of payment, type: select, options: [Online Payment, DD/PAYORDER, CHEQUE], default: Online Payment }
+      - { key: do_type, label: D/O or E-DO, type: select, options: [D/O, E-DO], default: E-DO }
+
+# Stamp artwork, in assets/private/stamps/ (run scripts/prepare_assets.py).
+stamps:
+  hexalog: { file: hexalog.png, name: Hexalog Global }
+  jai_shri: { file: jai_shri.png, name: Jai Shri Ram Darbar }
+  envogue: { file: envogue.png, name: Envogue Styles }
+
+# The DO folder, in PDF order.
+#   source: fixed (the same file every time), upload (arrives by email) or
+#           generate (the app writes it from the fields).
+#   per_hbl: one copy for every house B/L of the shipment.
+#   match: identifiers that must appear in an uploaded file's text, so a file
+#          from another shipment is caught. hbl means the copy's own HBL.
+#   stamp: for uploads, where it goes, as fractions of the page: x and y of
+#          the stamp's centre from the bottom-left corner, and its width.
+#          Generated letters place their own stamp at the signature.
+documents:
+  - key: bond_consignee
+    title: Bond (Consignee)
+    source: fixed
+    file: bonds.pdf
+    pages: [2]
+
+  - key: bond_client
+    title: Bond (Client)
+    source: fixed
+    file: bonds.pdf
+    pages: [1]
+
+  - key: hbl
+    title: HBL (House Bill of Lading)
+    source: upload
+    per_hbl: true
+    match: [hbl]
+    stamp: { stamp: envogue, pages: first, x: 0.19, y: 0.24, width: 0.22 }
+
+  - key: mbl
+    title: MBL (Master Bill of Lading)
+    source: upload
+    match: [mbl_no]
+    stamp: { stamp: hexalog, pages: all, x: 0.62, y: 0.43, width: 0.16 }
+
+  - key: security_receipt
+    title: Security Receipt
+    source: upload
+    match: [mbl_no]
+
+  - key: security_odex_receipt
+    title: Security-cum-ODEX Receipt
+    source: upload
+    per_hbl: true
+    match: [hbl]
+
+  - key: do_receipt
+    title: DO Receipt
+    source: upload
+    match: [mbl_no]
+
+  - key: noc_cha
+    title: NOC for DO (CHA)
+    source: generate
+    stamp: { stamp: jai_shri }
+    uses: [letter_date, line_agent, line_agent_address, mbl_no, containers, hbl_nos, vessel, voyage, consignee_mbl, consignee_hbl, cha]
+
+  - key: endorsed_do
+    title: Endorsed Delivery Order
+    source: generate
+    stamp: { stamp: jai_shri }
+    uses: [letter_date, line_agent, line_agent_address, do_collector, consignee_hbl, mbl_no, containers]
+
+  - key: noc_hexalog
+    title: NOC for DO (Hexalog)
+    source: generate
+    stamp: { stamp: hexalog }
+    uses: [letter_date, line_agent, line_agent_address, mbl_no, containers, hbl_nos, vessel, voyage, consignee_mbl, consignee_hbl, forwarder_name, forwarder_signatory, forwarder_designation]
+
+  - key: authorization
+    title: Authorization Letter
+    source: generate
+    stamp: { stamp: hexalog }
+    uses: [letter_date, line_agent, line_agent_address, mbl_no, containers, hbl_nos, vessel, voyage, consignee_mbl, consignee_hbl, cha, forwarder_name, forwarder_signatory, forwarder_designation]
+
+  - key: checklist
+    title: Checklist
+    source: generate
+    uses: [letter_date, consignee_mbl, forwarder_tel, forwarder_email, cha, cha_email, mbl_no, hbl_nos, endorsed, delivery_type, loi_for, factory_location, validity_required, noc_from_forwarder, hss, hss_documents, payment_mode, do_type]

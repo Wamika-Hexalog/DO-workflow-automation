@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-StageId = Literal["pending", "ready", "requested", "received", "closed"]
+StageId = Literal["igm_filed", "invoice_paid", "deposit_approved", "folder_ready", "do_requested", "edo_received"]
 
 
 class ValuesIn(BaseModel):
@@ -22,23 +22,50 @@ class MoveIn(BaseModel):
     to: StageId
 
 
-class PageProgressOut(BaseModel):
-    id: str
-    filled: int
-    total: int
-    status: Literal["done", "part", "empty"]
+class BuildIn(BaseModel):
+    confirmed: bool = False  # the operator has reviewed every document
 
 
-class DocumentOut(BaseModel):
-    url: str
-    filename: str
-    generated_at: datetime | None
-
-
-class ClientOut(BaseModel):
+class ProfileOut(BaseModel):
     id: str
     name: str
     values: dict[str, Any]
+
+
+class FlagOut(BaseModel):
+    kind: Literal["missing", "fields", "duplicate", "mismatch", "unreadable", "setup"]
+    message: str
+    can_check: bool
+
+
+class FileOut(BaseModel):
+    id: str
+    name: str
+    pages: int
+    uploaded_at: datetime
+    checked_by_eye: bool
+    original_url: str
+
+
+class SlotOut(BaseModel):
+    id: str
+    doc_key: str
+    hbl: str | None
+    title: str
+    source: Literal["fixed", "upload", "generate"]  # where the pages come from now
+    defined_source: Literal["fixed", "upload", "generate"]  # as do_folder.yaml says
+    stamp: str | None
+    status: Literal["ok", "flagged", "missing"]
+    flags: list[FlagOut]
+    file: FileOut | None
+    preview_url: str | None
+
+
+class FolderOut(BaseModel):
+    url: str
+    filename: str
+    built_at: datetime | None
+    stale: bool
 
 
 class ShipmentOut(BaseModel):
@@ -47,14 +74,19 @@ class ShipmentOut(BaseModel):
     status: StageId
     owner: str | None
     values: dict[str, Any]
-    pages: list[PageProgressOut]
-    pages_done: int
-    pages_total: int
-    field_status: dict[str, Literal["ok", "missing", "invalid"]]
+    field_status: dict[str, Literal["ok", "missing", "invalid", "optional"]]
     issues: dict[str, list[str]]
+    slots: list[SlotOut]
+    docs_ok: int
+    docs_total: int
+    ready: bool
+    folder: FolderOut | None
     requested_on: date | None
     edo_received_on: date | None
-    edo_valid_till: date | None
-    closed_on: date | None
-    document: DocumentOut | None
     updated_at: datetime
+
+
+class EventOut(BaseModel):
+    at: datetime
+    action: str
+    detail: str

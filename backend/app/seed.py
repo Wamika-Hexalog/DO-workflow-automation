@@ -1,28 +1,30 @@
-"""Dummy Evoque shipments for the demo, dated relative to today."""
+"""Demo shipments for CMA CGM import DOs. The first one carries the sample
+documents the customs team shared, when the Docs folder is present."""
 from __future__ import annotations
 
+import shutil
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from .containers import with_check_digit as box
-from .db import Client, Shipment
-from .do_set import DoSet
+from . import assemble
+from .config import Settings
+from .db import Document, Event, Profile, Shipment
+from .folder import Folder
 
-CLIENT_ID = "evoque"
-CLIENT_NAME = "Evoque"
-CLIENT_VALUES = {
-    "importer_name": "Evoque",
-    "importer_address": "Plot 22, Sector 8, IMT Manesar, Haryana 122051",
-    "iec": "AAFCE4821K",
-    "gstin": "06AAFCE4821K1Z3",
-    "signatory_name": "Karan Malhotra",
-    "signatory_designation": "Head of Logistics",
-    "cha_name": "Hexalog Technologies Pvt Ltd",
-    "cha_licence": "CB/DEL/0417",
+PROFILE_ID = "default"
+PROFILE_NAME = "Hexalog Global Supply Chains"
+
+# Sample files in the Docs folder, by the folder slot they belong to.
+SAMPLE_FILES = {
+    "hbl": "House of Bill of Lading.pdf",
+    "mbl": "Master Bill of Lading.pdf",
+    "security_receipt": "Security Receipt.pdf",
+    "security_odex_receipt": "Security Deposit Acknowledgment Slip.pdf",
+    "do_receipt": "Delivery Order Receipt.pdf",
 }
 
 
@@ -32,143 +34,75 @@ def financial_year(today: date) -> str:
     return f"{start % 100:02d}-{(start + 1) % 100:02d}"
 
 
-def _day(offset: int) -> date:
-    return date.today() + timedelta(days=offset)
-
-
-def _iso(offset: int) -> str:
-    return _day(offset).isoformat()
-
-
-def _page_values(n: str) -> dict[str, Any]:
-    return {
-        "p01_date": _iso(-1), "p01_ref": f"HXL/DO/{n}",
-        "p02_person": "Vikas Kumar", "p02_valid": _iso(30),
-        "p03_reason": "Telex release", "p03_stamp": "500",
-        "p04_yard": "Line empty yard near the ICD", "p04_free": "14",
-        "p05_accept": True,
-        "p06_mode": "Bank transfer", "p06_amount": "40000",
-        "p07_date": _iso(-1),
-        "p08_release": "Telex release", "p08_ref": f"TLX{n}26",
-        "p09_cfs": "Line-nominated CFS at the ICD", "p09_mode": "Rail",
-        "p10_days": "21", "p10_reason": "Plant shutdown over Diwali week, so destuffing needs extra time.",
-        "p11_utr": f"HDFCR5202610{n}", "p11_amount": "38500", "p11_date": _iso(-1),
-        "p12_hss": "Not applicable",
-        "p13_till": _iso(12),
-        "p14_place": "Gurugram", "p14_date": _iso(-1),
-    }
-
-
-def _complete(**values: Any) -> dict[str, Any]:
-    return {
-        "igm_date": _iso(-1),
-        "packages": "22 pallets",
-        "gross_weight": "15880",
-        "cargo_desc": "Industrial components",
-        **values,
-    }
-
-
-def _shipments(page_ids: list[str]) -> list[dict[str, Any]]:
-    good = box("MRKU", "228471")
-    typo = good[:10] + str((int(good[10]) + 3) % 10)
+def _shipments() -> list[dict[str, Any]]:
     return [
-        dict(n="0412", owner="Ravi Sharma", status="pending", pages=page_ids[:12], values=dict(
-            bl_no="MEDUH5734012", bl_date=_iso(-21), shipping_line="MSC", pol="Shanghai (CNSHA)",
-            vessel="MSC Lorena", voyage="IU642W", eta=_iso(1), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Tughlakabad", igm_no="2384719", igm_date=_iso(-2), igm_line="124",
-            containers="\n".join([box("MSCU", "482913"), box("MEDU", "731058")]), container_size="40HC",
-            packages="26 pallets", gross_weight="18420", cargo_desc="Industrial components",
+        # Every document received: ready for review and build.
+        dict(n="0431", owner="Ravi Sharma", status="deposit_approved", days_ago=3, files=list(SAMPLE_FILES), values=dict(
+            mbl_no="GGZ3193024", hbl_nos="MSEC260803047251", containers="TCNU5191327",
+            vessel="OOCL SINGAPORE", voyage="0FBI5W1MA",
         )),
-        dict(n="0415", owner="Sneha Nair", status="pending", pages=page_ids[:13], values=dict(
-            bl_no="263518840", bl_date=_iso(-18), shipping_line="Maersk", pol="Ningbo (CNNGB)",
-            vessel="Maersk Halden", voyage="642W", eta=_iso(3), pod="Mundra (INMUN1)",
-            delivery_place="ICD Garhi Harsaru",
-            containers="\n".join([box("MSKU", "905126"), typo]), container_size="40HC",
-            packages="18 pallets", gross_weight="12960", cargo_desc="Industrial components",
+        # Two house bills, nothing received yet, voyage still unknown.
+        dict(n="0434", owner="Sneha Nair", status="invoice_paid", days_ago=2, files=[], values=dict(
+            mbl_no="GGZ3164994", hbl_nos="MSEC260900031273\nMSEC260900031466", containers="CMAU9987728",
+            vessel="XIN MEI ZHOU",
         )),
-        dict(n="0417", owner="Arjun Verma", status="pending", pages=[], values=dict(
-            bl_no="CMDUSHZ2511843", bl_date=_iso(-10), shipping_line="CMA CGM", pol="Busan (KRPUS)",
-            vessel="CMA CGM Rivoli", voyage="0FE7RW1MA", eta=_iso(6), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Patparganj",
-            containers="\n".join([box("CMAU", "556120"), box("CGMU", "410387"), box("TGHU", "902554")]),
-            container_size="20GP",
+        # Someone attached job 0431's DO receipt here by mistake.
+        dict(n="0436", owner="Arjun Verma", status="deposit_approved", days_ago=1, files=["do_receipt"], values=dict(
+            mbl_no="GGZ3207715", hbl_nos="MSEC260900045112", containers="CMAU7412030",
+            vessel="CMA CGM TAGE", voyage="0FE5LW1MA",
         )),
-        dict(n="0419", owner="Meera Iyer", status="pending", pages=[], values=dict(
-            bl_no="HLCUHAM2509871", shipping_line="Hapag-Lloyd", pol="Hamburg (DEHAM)",
-            vessel="Lisbon Express", voyage="041E", eta=_iso(9),
-        )),
-        dict(n="0405", owner="Ravi Sharma", status="ready", pages=page_ids, values=_complete(
-            bl_no="ONEYSHAF29871300", bl_date=_iso(-19), shipping_line="ONE", pol="Shanghai (CNSHA)",
-            vessel="ONE Harmony", voyage="071W", eta=_iso(2), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Tughlakabad", igm_no="2384102", igm_line="88",
-            containers="\n".join([box("ONEU", "128445"), box("TCLU", "330918")]), container_size="40HC",
-        )),
-        dict(n="0408", owner="Sneha Nair", status="ready", pages=page_ids, values=_complete(
-            bl_no="EGLV142500318822", bl_date=_iso(-17), shipping_line="Evergreen", pol="Kaohsiung (TWKHH)",
-            vessel="Ever Lumen", voyage="1185W", eta=_iso(4), pod="Mundra (INMUN1)",
-            delivery_place="ICD Garhi Harsaru", igm_no="2384650", igm_line="41",
-            containers="\n".join([box("EGHU", "904417"), box("EMCU", "152093"), box("EISU", "774610")]),
-            container_size="20GP", packages="310 cartons", gross_weight="9875",
-        )),
-        dict(n="0398", owner="Arjun Verma", status="requested", pages=page_ids,
-             dates=dict(requested_on=_day(-1)), values=_complete(
-            bl_no="COSU6438290170", bl_date=_iso(-24), shipping_line="COSCO", pol="Qingdao (CNTAO)",
-            vessel="Cosco Shenzhen", voyage="052W", eta=_iso(-1), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Tughlakabad", igm_no="2383377", igm_date=_iso(-3), igm_line="212",
-            containers=box("CSNU", "618204"), container_size="40HC",
-        )),
-        dict(n="0401", owner="Meera Iyer", status="requested", pages=page_ids,
-             dates=dict(requested_on=_day(0)), values=_complete(
-            bl_no="MEDUH5698817", bl_date=_iso(-23), shipping_line="MSC", pol="Singapore (SGSIN)",
-            vessel="MSC Tessa", voyage="IU641W", eta=_iso(-2), pod="Nhava Sheva (INNSA1)",
-            delivery_place="CFS at port", igm_no="2383120", igm_date=_iso(-4), igm_line="57",
-            containers="\n".join([box("MSDU", "204471"), box("MSCU", "993105")]), container_size="40GP",
-        )),
-        dict(n="0390", owner="Ravi Sharma", status="received", pages=page_ids,
-             dates=dict(requested_on=_day(-4), edo_received_on=_day(-2), edo_valid_till=_day(9)), values=_complete(
-            bl_no="263504417", bl_date=_iso(-28), shipping_line="Maersk", pol="Ningbo (CNNGB)",
-            vessel="Maersk Elba", voyage="638W", eta=_iso(-5), pod="Mundra (INMUN1)",
-            delivery_place="ICD Garhi Harsaru", igm_no="2382511", igm_date=_iso(-7), igm_line="19",
-            containers=box("MRKU", "557802"), container_size="40HC",
-        )),
-        dict(n="0393", owner="Sneha Nair", status="received", pages=page_ids,
-             dates=dict(requested_on=_day(-3), edo_received_on=_day(-1), edo_valid_till=_day(6)), values=_complete(
-            bl_no="HLCUSHA2509342", bl_date=_iso(-26), shipping_line="Hapag-Lloyd", pol="Shanghai (CNSHA)",
-            vessel="Kyoto Express", voyage="039W", eta=_iso(-4), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Tughlakabad", igm_no="2382790", igm_date=_iso(-6), igm_line="73",
-            containers="\n".join([box("HLBU", "120339"), box("HLXU", "871226")]), container_size="40HC",
-        )),
-        dict(n="0381", owner="Arjun Verma", status="closed", pages=page_ids,
-             dates=dict(requested_on=_day(-15), edo_received_on=_day(-13), edo_valid_till=_day(-5),
-                        closed_on=_day(-3)), values=_complete(
-            bl_no="CMDUNGB2507719", bl_date=_iso(-40), shipping_line="CMA CGM", pol="Ningbo (CNNGB)",
-            vessel="CMA CGM Tage", voyage="0FE5LW1MA", eta=_iso(-16), pod="Nhava Sheva (INNSA1)",
-            delivery_place="ICD Patparganj", igm_no="2380044", igm_date=_iso(-18), igm_line="102",
-            containers=box("CMAU", "304918"), container_size="20GP",
+        # IGM just filed.
+        dict(n="0438", owner="Meera Iyer", status="igm_filed", days_ago=0, files=[], values=dict(
+            mbl_no="GGZ3221408", vessel="APL PARIS",
         )),
     ]
 
 
-def seed_demo_data(session: Session, do_set: DoSet, job_prefix: str) -> None:
-    """Replaces everything in the database with the demo client and shipments."""
-    def known(values: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in values.items() if key in do_set.fields}
+def ensure_profile(session: Session, folder: Folder) -> None:
+    """The fixed details exist from the first start, with the defaults from do_folder.yaml."""
+    if session.get(Profile, PROFILE_ID) is None:
+        session.add(Profile(id=PROFILE_ID, name=PROFILE_NAME, data=folder.defaults("profile", date.today())))
+        session.commit()
 
+
+def seed_demo_data(session: Session, folder: Folder, settings: Settings) -> None:
+    """Replaces everything in the database, and every stored file, with the demo data."""
+    session.execute(delete(Event))
+    session.execute(delete(Document))
     session.execute(delete(Shipment))
-    session.execute(delete(Client))
-    session.add(Client(id=CLIENT_ID, name=CLIENT_NAME, data=known(CLIENT_VALUES)))
+    session.execute(delete(Profile))
+    if settings.storage_dir.is_dir():
+        shutil.rmtree(settings.storage_dir)
 
-    fy = financial_year(date.today())
-    for spec in _shipments([page.id for page in do_set.pages]):
-        page_values = {k: v for k, v in _page_values(spec["n"]).items() if k[:3] in spec["pages"]}
-        session.add(Shipment(
+    today = date.today()
+    session.add(Profile(id=PROFILE_ID, name=PROFILE_NAME, data=folder.defaults("profile", today)))
+
+    fy = financial_year(today)
+    now = datetime.now(timezone.utc)
+    for spec in _shipments():
+        created = now - timedelta(days=spec["days_ago"])
+        shipment = Shipment(
             id=uuid.uuid4().hex[:12],
-            job_no=f"{job_prefix}/{fy}/{spec['n']}",
-            client_id=CLIENT_ID,
+            job_no=f"{settings.job_prefix}/{fy}/{spec['n']}",
             status=spec["status"],
             owner=spec["owner"],
-            data=known({**spec["values"], **page_values}),
-            **spec.get("dates", {}),
-        ))
+            data={**folder.defaults("shipment", today), **spec["values"]},
+            created_at=created,
+            changed_at=created,
+        )
+        session.add(shipment)
+        session.add(Event(shipment_id=shipment.id, at=created, action="created", detail=f"Job {shipment.job_no} opened."))
+
+        slots = {slot.doc.key: slot for slot in folder.slots(shipment.data)}
+        for key in spec["files"]:
+            source = settings.demo_docs_dir / SAMPLE_FILES[key]
+            if key not in slots or not source.is_file():
+                continue
+            document = assemble.store_upload(settings, shipment, slots[key], source.name, source.read_bytes())
+            document.uploaded_at = created
+            session.add(document)
+            session.add(Event(
+                shipment_id=shipment.id, at=created, action="attached",
+                detail=f"{slots[key].doc.title}: {source.name}.",
+            ))
     session.commit()

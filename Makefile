@@ -1,7 +1,7 @@
 PYTHON ?= python3
 VENV := backend/.venv
 
-.PHONY: setup api web dev demo test template check-template
+.PHONY: setup assets api web dev demo test
 
 setup:
 	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Python 3.10 or newer is needed, found " + sys.version.split()[0])'
@@ -26,8 +26,6 @@ demo:
 test:
 	cd backend && .venv/bin/python -m pytest -q
 
-template:
-	cd backend && .venv/bin/python scripts/build_placeholder_template.py
-
-check-template:
-	cd backend && .venv/bin/python scripts/check_template.py
+# Stamps, bonds and letterhead artwork, built from the Docs folder the team shared.
+assets:
+	cd backend && .venv/bin/python scripts/prepare_assets.py ../Docs
