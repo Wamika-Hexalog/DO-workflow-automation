@@ -1,0 +1,32 @@
+[project]
+name = "do-workflow"
+version = "0.2.0"
+description = "CMA CGM delivery orders: collect, check, stamp and build the DO folder, then raise the DO request."
+readme = "../README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.141.1",
+    "starlette==1.7.0",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy==2.0.54",
+    "pydantic==2.13.5",
+    "pyyaml==6.0.3",
+    "pypdf==6.20.1",
+    "reportlab==5.0.1",
+    "pillow==12.3.0",
+    "python-multipart==0.0.32",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx2==2.13.1",
+]
+
+# The backend is an app, not a library: `app` is imported from this folder.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
