@@ -21,7 +21,7 @@ export default function TopBar({ query, setQuery, showSearch, onNew, onReset }) 
         <button type="button" className="btn btn-quiet" onClick={onReset}>
           Reset demo data
         </button>
-        <button type="button" className="btn btn-primary" onClick={onNew}>
+        <button type="button" className={`btn${showSearch ? " btn-primary" : ""}`} onClick={onNew}>
           New job
         </button>
       </div>

@@ -28,6 +28,9 @@
   --rule: var(--border-sand);
   --rule-tint: var(--border-lavender);
   --rule-field: var(--ink-600); /* input edges need 3:1; the sand hairline is 1.3:1 */
+  --rule-control: var(--ink-500); /* secondary buttons: visible, but quieter than a field */
+  --done: var(--lavender-highlight); /* ready, in the document strip: lighter than Deep Hexa */
+  --done-soft: rgba(131, 77, 251, .12);
   --brand: var(--deep-hexa);
   --brand-hover: var(--hexa-violet);
   --brand-ink: #FFFFFF;
@@ -75,6 +78,8 @@
     --brand-ink: var(--hexa-dark);
     --accent: var(--lavender-highlight);
     --wash: rgba(143, 145, 255, .14);
+    --done-soft: rgba(143, 145, 255, .2);
+    --rule-control: rgba(245, 245, 255, .32);
     --toast: var(--hexa-off-white);
     --toast-ink: var(--hexa-dark);
     --link-on-tint: var(--hexa-off-white);
@@ -96,6 +101,8 @@
   --brand-ink: var(--hexa-dark);
   --accent: var(--lavender-highlight);
   --wash: rgba(143, 145, 255, .14);
+  --done-soft: rgba(143, 145, 255, .2);
+  --rule-control: rgba(245, 245, 255, .32);
   --toast: var(--hexa-off-white);
   --toast-ink: var(--hexa-dark);
   --link-on-tint: var(--hexa-off-white);
@@ -146,16 +153,16 @@ button, input, select, textarea { font: inherit; color: inherit; letter-spacing:
 .search .input { padding-block: 8px; }
 .actions { display: flex; gap: 8px; }
 
-/* Buttons. Primary is Deep Hexa and lightens to Hexa Violet; the default is the
-   brand's secondary, a Deep Hexa hairline that takes a violet wash. Press nudges 1px. */
+/* Buttons. One primary per screen: Deep Hexa, lightening to Hexa Violet. Everything
+   else is neutral and only turns violet on hover, so purple marks the next step. */
 .btn {
   display: inline-flex;
   align-items: center;
   padding: 8px 14px;
-  border: var(--hair) solid var(--brand);
+  border: var(--hair) solid var(--rule-control);
   border-radius: var(--radius-xs);
   background: var(--sheet);
-  color: var(--brand);
+  color: var(--ink);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.3;
@@ -163,7 +170,7 @@ button, input, select, textarea { font: inherit; color: inherit; letter-spacing:
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.btn:hover { background: var(--wash); }
+.btn:hover { background: var(--wash); border-color: var(--accent); color: var(--brand); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn-primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
 .btn-primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
@@ -230,7 +237,7 @@ textarea.input { min-height: 72px; resize: vertical; }
   border-radius: 50%;
   background: var(--paper);
 }
-.col-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; color: var(--brand); font-size: 12px; line-height: 1.2; }
+.col-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; color: var(--ink); font-size: 12px; line-height: 1.2; }
 .col-count { color: var(--ink-2); font: 500 12px/1 var(--font-mono); letter-spacing: 0; }
 .list {
   flex: 1;
@@ -272,8 +279,8 @@ textarea.input { min-height: 72px; resize: vertical; }
   height: 24px;
   border: var(--hair) solid var(--rule);
   border-radius: 50%;
-  background: var(--tint);
-  color: var(--brand);
+  background: var(--paper);
+  color: var(--ink-2);
   font: 600 10.5px/1 var(--font-ui);
   letter-spacing: .02em;
 }
@@ -300,7 +307,7 @@ textarea.input { min-height: 72px; resize: vertical; }
   transition: background-color .3s var(--ease-out), border-color .3s var(--ease-out), color .3s var(--ease-out);
 }
 .seg.flagged { background: var(--marker); border-color: var(--marker-ink); }
-.seg.ok { background: var(--brand); border-color: var(--brand); }
+.seg.ok { background: var(--done); border-color: var(--done); }
 .strip.lg { gap: 3px; }
 .strip.lg .seg {
   display: grid;
@@ -316,7 +323,7 @@ textarea.input { min-height: 72px; resize: vertical; }
 }
 .strip.lg .seg:hover { border-color: var(--accent); }
 .strip.lg .seg.flagged { color: var(--marker-ink); }
-.strip.lg .seg.ok { color: var(--brand-ink); }
+.strip.lg .seg.ok { background: var(--done-soft); border-color: transparent; color: var(--brand); }
 
 /* Shipment view */
 .detail { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -359,7 +366,7 @@ textarea.input { min-height: 72px; resize: vertical; }
 .nav-item .state { flex: none; color: var(--ink-2); font: 500 12px/1 var(--font-mono); letter-spacing: 0; }
 .nav-item .state.done { display: inline-flex; color: var(--brand); }
 .nav-item .state.warn { padding: 3px 6px; border-radius: 4px; background: var(--marker); color: var(--marker-ink); font-family: var(--font-ui); font-weight: 600; }
-.nav-label { margin: 22px 12px 4px; color: var(--brand); font-size: 11.5px; }
+.nav-label { margin: 22px 12px 4px; color: var(--ink-2); font-size: 11.5px; }
 .nav-note { margin: 18px 12px 8px; color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
 .main { padding: 28px 32px 56px; overflow-y: auto; }
 .main-inner { max-width: 780px; }
@@ -368,8 +375,8 @@ textarea.input { min-height: 72px; resize: vertical; }
 .section-title { font: 600 26px/1.15 var(--font-display); letter-spacing: -0.015em; }
 .section-sub { max-width: 64ch; margin-top: 6px; color: var(--ink-2); }
 /* Group headings: eyebrow, then a hairline running to the edge of the column. */
-.group-title { display: flex; align-items: center; gap: 12px; margin: 30px 0 12px; color: var(--brand); font: 600 12px/1.2 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
-.group-title::after { content: ""; flex: 1; border-top: .666px solid var(--ink-500); }
+.group-title { display: flex; align-items: center; gap: 12px; margin: 30px 0 12px; color: var(--ink-2); font: 600 12px/1.2 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
+.group-title::after { content: ""; flex: 1; border-top: var(--hair) solid var(--rule); }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field.wide { grid-column: 1 / -1; }
@@ -392,11 +399,10 @@ textarea.input { min-height: 72px; resize: vertical; }
   padding: 14px 16px;
   background: var(--sheet);
   border: var(--hair) solid var(--rule);
-  border-left: 3px solid var(--ink-500);
+  border-left: 3px solid var(--rule);
   border-radius: var(--radius-sm);
   transition: background-color var(--dur-base) var(--ease-out), box-shadow .5s var(--ease-out);
 }
-.slot.ok { border-left-color: var(--brand); }
 .slot.flagged { border-left-color: var(--marker); }
 .slot.drop { background: var(--wash); box-shadow: inset 0 0 0 var(--hair) var(--accent); }
 .slot.flash { box-shadow: 0 0 0 3px var(--wash), 0 0 0 var(--hair) var(--accent); }
