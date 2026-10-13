@@ -1,5 +1,5 @@
 import { openFlags } from "../lib/folder.js";
-import { initials, plural, shipmentFacts, stageNote } from "../lib/format.js";
+import { initials, shipmentFacts, stageNote } from "../lib/format.js";
 import DocStrip from "./DocStrip.jsx";
 
 export default function Card({ shipment, flash, dragging, onOpen, onDragStart, onDragEnd }) {
@@ -46,8 +46,8 @@ export default function Card({ shipment, flash, dragging, onOpen, onDragStart, o
       </div>
       {(flags > 0 || stale) && (
         <div className="badges">
-          {flags > 0 && <span className="badge warn">{plural(flags, "document")} to check</span>}
-          {stale && <span className="badge warn">Folder out of date</span>}
+          {flags > 0 && <span className="badge warn">{flags} to check</span>}
+          {stale && <span className="badge warn">Out of date</span>}
         </div>
       )}
       {note && <div className="note">{note}</div>}

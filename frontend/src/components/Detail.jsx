@@ -226,11 +226,13 @@ export default function Detail({
             Review and build
           </button>
         </div>
+        <p className="eyebrow">
+          {shipment.job_no} · {folder.stageNames[shipment.status]}
+        </p>
         <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
         <div className="d-meta">
-          <span><em>Job</em>{shipment.job_no}</span>
           <span><em>Vessel</em>{vessel || "Not set"}</span>
-          <span><em>HBL</em>{hbls.length ? hbls.join(", ") : "Not set"}</span>
+          <span><em>HBL</em><span className={hbls.length ? "mono" : undefined}>{hbls.length ? hbls.join(", ") : "Not set"}</span></span>
           {shipment.owner && <span><em>Owner</em>{shipment.owner}</span>}
         </div>
         <div className="d-progress">
