@@ -80,7 +80,7 @@ The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and wai
 - **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from the real one's HTML (same ids, checks and messages, and the same page after Submit), invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
 - **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
 
-Every page and document says it's a local demo. The ODeX screenshots show a real account, so `make assets` keeps them in `backend/assets/private/`, out of git. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
+The pages look like the real ones, with no demo banner; the portals listen only on this machine, and every document they hand out is watermarked LOCAL DEMO. The ODeX screenshots show a real account, so `make assets` keeps them in `backend/assets/private/`, out of git. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
 
 `backend/sops/local` has an SOP for each step, filled from the database by `app/portal_params.py`. Its README maps every page field to the field it comes from, and lists what's still needed to move to the real sites. Run a step for a job with `make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1`.
 

@@ -123,7 +123,7 @@ def test_odex_asks_for_the_login(tmp_path):
         assert 'id="login-error"' in wrong.text
 
         home = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
-        assert 'id="epayment-location"' in home.text and "Local demo." in home.text
+        assert 'id="epayment-location"' in home.text
         # The login page only offers the next page within ODeX.
         away = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "//elsewhere"}, follow_redirects=False)
         assert away.headers["location"] == "/odex/home"
@@ -321,7 +321,7 @@ def test_reset_empties_the_portals(web):
     assert list(web.app.state.store.files_dir.iterdir()) == []
 
 
-def test_every_page_says_it_is_a_local_demo(web):
+def test_every_page_opens_with_no_demo_banner(web):
     pages = [
         "/", "/control", "/odex/home", "/odex/epayment?location=NCR", INVOICES, f"{INVOICES}/new",
         f"{BL_STATUS}?bl_no={MBL}", DEPOSITS, f"{DEPOSITS}/new", DO_REQUESTS, f"{DO_REQUESTS}/new", RTGS,
@@ -329,4 +329,5 @@ def test_every_page_says_it_is_a_local_demo(web):
     for path in pages:
         response = web.get(path)
         assert response.status_code == 200, path
-        assert 'id="demo-banner"' in response.text, path
+        # The pages look like the real ones: no "Local demo" line across the top.
+        assert "Local demo" not in response.text and "(local demo)" not in response.text, path

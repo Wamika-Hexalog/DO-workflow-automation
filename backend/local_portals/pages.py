@@ -1,6 +1,6 @@
 """Page layout shared by the local portals: plain server-rendered HTML, as the real
-portals are, with a banner on every page saying it is a local demo. No logos or
-styling are copied from the real sites, so nobody mistakes one for the other."""
+portals are. The portals listen only on this machine (make portals binds 127.0.0.1),
+and the documents they hand out are watermarked LOCAL DEMO."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
@@ -14,8 +14,6 @@ SITE_NAMES = {
     "control": "CMA CGM control panel",
     "home": "Local portals",
 }
-# The real sites the local ones stand in for, named in the banner.
-REAL_SITES = {"odex": "ODeX", "cma_rtgs": "CMA CGM RTGS payments site"}
 
 _STYLE = """
 :root { --ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --bg:#f6f8fa; --card:#fff; --accent:#0b5cad;
@@ -25,7 +23,6 @@ _STYLE = """
 body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink);
        background:var(--bg); }
 a { color:var(--accent); }
-.demo { background:#fff8c5; border-bottom:1px solid #d4a72c; color:#3b2300; padding:6px 16px; font-size:13px; }
 header.site { background:#2f363d; color:#fff; padding:8px 16px; display:flex; flex-wrap:wrap; align-items:center;
               gap:8px 20px; }
 header.site .name { font-weight:600; font-size:16px; }
@@ -111,13 +108,10 @@ def page(
 ) -> HTMLResponse:
     name = SITE_NAMES[site]
     scripts = (_MENU_SCRIPT if menu else "") + script
-    not_real = f"This is not the real {esc(REAL_SITES[site])}: it runs" if site in REAL_SITES else "These pages run"
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)} · {esc(name)} (local demo)</title><style>{_STYLE}{style}</style></head>
+<title>{esc(title)} · {esc(name)}</title><style>{_STYLE}{style}</style></head>
 <body{f" {body_attrs}" if body_attrs else ""}>
-<div class="demo" id="demo-banner"><b>Local demo.</b> {not_real} only on this machine, and nothing entered
-here reaches CMA CGM, ODeX or a bank.</div>
 {f'<header class="site"><span class="name">{esc(name)} <small>local</small></span>{menu}{user}</header>' if header else ""}
 <main>{body}</main>
 {f"<script>{scripts}</script>" if scripts else ""}
