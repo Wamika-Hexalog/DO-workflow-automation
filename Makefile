@@ -1,4 +1,4 @@
-.PHONY: setup assets api web inngest dev serve demo demo-agent test test-browser try-agent
+.PHONY: setup assets api web inngest dev serve demo test test-browser try-agent
 
 # uv installs Python 3.12 (backend/.python-version) and every backend package;
 # npm installs the UI and the Inngest dev server (pinned in frontend/package.json).
@@ -26,15 +26,6 @@ serve:
 demo:
 	cd frontend && npm run build
 	$(MAKE) -j2 serve inngest
-
-# The whole app, with the browser agent raising DO requests on a mock ODeX page in a
-# visible browser: build a folder, approve its DO request, and watch it work.
-demo-agent:
-	cd frontend && npm run build
-	cd backend && uv run python scripts/mock_odex_sop.py
-	DO_ODEX_SOP=$(CURDIR)/backend/data/mock_odex/sop_mock_odex_do_request.yaml DO_BROWSER_HEADLESS=0 \
-		BROWSER_SLOW_MO_MS=$${BROWSER_SLOW_MO_MS:-700} GOOGLE_API_KEY=$${GOOGLE_API_KEY:-not-used-by-playwright-steps} \
-		$(MAKE) -j2 serve inngest
 
 test:
 	cd backend && uv run pytest -q

@@ -52,11 +52,6 @@ steps:
         return { odex_request_ref: out.dataset.reference, odex_confirmation: out.textContent };
       }
 
-  - action: wait
-    description: Leave the result on screen for a moment, for whoever is watching
-    method: playwright
-    duration: 2500
-
   # Without an explicit end the agent repeats the last step until it runs out of
   # iterations, as in python-brain. app/workflows/browser.py refuses SOPs without one.
   - action: end
