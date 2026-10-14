@@ -12,14 +12,15 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from . import cma, cma_rtgs, control, odex, pages, settings
+from . import cma, cma_rtgs, control, odex, odex_screens, pages, settings
 from .pages import esc
 from .store import Store
 
 
-def create_app(data_dir: Path | None = None, *, autoplay: bool = True) -> FastAPI:
+def create_app(data_dir: Path | None = None, *, autoplay: bool = True, screens_dir: Path | None = None) -> FastAPI:
     """``autoplay=False`` leaves out the thread that answers requests by itself:
-    tests answer them by calling cma directly."""
+    tests answer them by calling cma directly. ``screens_dir`` holds the ODeX
+    screenshots (`make assets`); the pages work without them."""
     store = Store(data_dir or settings.data_dir())
     player = cma.Autoplay(store)
 
@@ -33,7 +34,9 @@ def create_app(data_dir: Path | None = None, *, autoplay: bool = True) -> FastAP
     app = FastAPI(title="Local portals (demo)", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     app.state.autoplay = player
+    app.state.screens_dir = screens_dir or settings.screens_dir()
     app.include_router(odex.router)
+    app.include_router(odex_screens.router)
     app.include_router(cma_rtgs.router)
     app.include_router(control.router)
 
@@ -49,8 +52,9 @@ def create_app(data_dir: Path | None = None, *, autoplay: bool = True) -> FastAP
 <p class="path">Stand-ins for the websites of the CMA CGM DO process, so it can be shown, and its SOPs written,
 without touching the real sites. Everything stays on this machine.</p>
 <div class="card"><h2 style="margin-top:0"><a href="/odex">ODeX</a></h2>
-<p>Request the DO invoice, register the security deposit and raise the DO request, then download the deposit
-slip and the eDO. {login}</p></div>
+<p>Request the DO invoice and collect it, as the team's ODeX guide shows (its screenshots, with live buttons
+over them), register the security deposit and raise the DO request, then download the deposit slip and the eDO.
+{login}</p></div>
 <div class="card"><h2 style="margin-top:0"><a href="/cma-rtgs">CMA CGM RTGS payments</a></h2>
 <p>Enter the DO invoice and security deposit payments against the B/L, so CMA CGM emails the receipts.</p></div>
 <div class="card"><h2 style="margin-top:0"><a href="/control">Control panel</a></h2>

@@ -52,19 +52,16 @@ steps:
     selector: "#login"
 
   - action: wait_for_selector
-    description: Wait for the menus, which only show once logged in
+    description: Wait for the services page
     method: playwright
-    selector: "#menu"
+    selector: "#epayment-location"
 
-  - action: click
-    description: Open the e-Payment menu
+  # The team's ODeX guide doesn't reach the DO request yet, so its page is opened directly.
+  - action: goto
+    description: Open DO Request
     method: playwright
-    selector: "#menu-e-payment"
-
-  - action: click
-    description: Go to DO Request
-    method: playwright
-    selector: "#nav-do-request"
+    url: "{params.odex_url}/e-payment/do-request"
+    wait_for: domcontentloaded
 
   - action: wait_for_selector
     description: Wait for the DO Request page

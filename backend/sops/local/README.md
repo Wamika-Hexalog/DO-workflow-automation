@@ -2,7 +2,9 @@
 
 The CMA CGM DO process uses two websites: ODeX, and CMA CGM's RTGS payments page. The SOPs here drive local versions of both (`backend/local_portals`). That lets the whole process be shown, and every SOP be proven, without touching a real site. The browser agent is python-brain's, and the SOPs use python-brain's format. All their steps are scripted Playwright steps, so no model is called.
 
-The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fields, checks and messages, and the same page after Submit. So the RTGS SOP uses the real page's selectors. The local ODeX follows the SOP sheet of `DO PROCESS FLOW E2E.xlsx` and the sample documents in `Docs/`, since its real pages haven't been seen yet. See [Moving to the real sites](#moving-to-the-real-sites).
+The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fields, checks and messages, and the same page after Submit. So the RTGS SOP uses the real page's selectors.
+
+The local ODeX shows the team's step-by-step guide, "Delivery Order Request-First step 1": each page is the guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guide in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. The steps the guide doesn't reach yet (the deposit and the DO request) are plain pages that follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx`. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
 
@@ -13,7 +15,7 @@ make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1
 
 `portal-step` runs one step for a job in the app's database. `app/portal_params.py` builds the values from the job, and the run log goes on the job. `SHOW=1` opens the browser in slow motion. For a per-house-bill step, `HBL=...` runs only that house bill.
 
-Between steps, play CMA CGM on the control panel at http://127.0.0.1:8100/control: verify the invoice, email the receipts, approve the deposit, issue the eDO. You can also turn on autoplay so each answer comes by itself a few seconds later. The panel also shows the emails CMA CGM would send, with their attachments. Nothing is actually sent.
+Between steps, play CMA CGM on the control panel at http://127.0.0.1:8100/control: release the invoice, email the receipts, approve the deposit, issue the eDO. You can also turn on autoplay so each answer comes by itself a few seconds later. The panel also shows the emails CMA CGM would send, with their attachments. Nothing is actually sent.
 
 `make demo-local` runs the app, the Inngest dev server and the portals together. With it, approving a DO request in the app raises it on the local ODeX, in a visible browser.
 
@@ -25,18 +27,35 @@ Each step lists the page fields, what the SOP types into each one, and where in 
 
 ### 1. Request the DO invoice: `odex_request_invoice`
 
-ODeX → Request → Liner Request → Request New Invoice. Once per MBL, after CMA CGM files the IGM.
+The team's ODeX guide, steps 1–5. Once per MBL, after CMA CGM files the IGM:
+
+1. On the services page, choose ePayment's location: the MBL's final place of delivery (NCR for ICD Tughlakabad).
+2. Open ePayment, then Requests → Liner Requests → Request New Invoice.
 
 | Page field | Filled with |
 |---|---|
-| Liner | Fixed details: Liner on ODeX (`odex_liner`, default CMA CGM) |
-| Invoice type | Always "Delivery Order" |
-| B/L number | Job: Master B/L no. (`mbl_no`): CMA CGM invoices the master bill |
-| Container numbers | Job: Container nos. (`containers`) |
-| Email(s) for the invoice | Fixed details: Emails for CMA CGM's invoice and receipts (`do_mailbox`) |
-| Remarks | The job number |
+| ePayment's location (services page) | Job: ODeX location (`odex_location`, default NCR) |
+| Liner Name | Fixed details: Liner on ODeX (`odex_liner`, CMA CGM): the option that starts with it |
+| BL No. | Job: Master B/L no. (`mbl_no`): CMA CGM invoices the master bill |
+| BL Location | Job: ODeX location (`odex_location`) |
+| Type | Always Import |
+| Type Of Delivery | Job: Delivery type (`delivery_type`), in ODeX's words: Factory Destuff |
+| Job No. | The job number |
+| Invoice In Name of | Not typed: ODeX keeps it, the same every time (guide, step 5) |
+| Attachment | Seaway BL: the MBL in the DO folder, uploaded as `MBL-<MBL no.>.pdf` |
+| Remarks (on the attachment) | Always "PLEASE RELEASE TAX INVOICE" |
 
-It reads back ODeX's request number (`odex_invoice_request_ref`). CMA CGM then verifies the request and emails the invoice. Its number and amount go on the job as DO invoice no. and DO invoice amount.
+It reads back ODeX's request number (`odex_invoice_request_ref`). The liner then releases the invoice on ODeX.
+
+### 1b. Collect the DO invoice: `odex_invoice_fetch`
+
+The team's ODeX guide, steps 6–10. Once per MBL, after the liner releases the invoice. This step only reads, so it's safe to run again:
+
+1. Open ePayment for the job's location, enter the MBL in the search, and click EDO DETAILS.
+2. On the BL Status page, open the request (Requests card).
+3. On View Invoice Request, read the invoice and download its attachment.
+
+It reads back the request number and the invoice's number, date, amount and status. Once the invoice is out, it saves the invoice PDF to `data/files/<job>/portal/DO-invoice-<MBL>.pdf` (`downloaded_file_path`). That's the file that goes to Finance with the security deposit. The invoice's number and amount go on the job as DO invoice no. and DO invoice amount, and a line in the job's history says so. Before the release it reports the request's status and downloads nothing.
 
 ### 2. Confirm the payments: `cma_rtgs_shipment_payment` and `cma_rtgs_security_deposit`
 
@@ -119,7 +138,7 @@ ODeX → e-Payment → DO Request. Once per house B/L. This step only reads, so 
 
 The job form has two groups for values that arrive by email:
 
-- **Liner invoice**: DO invoice no. and amount, from CMA CGM's email once it verifies the invoice.
+- **Liner invoice**: DO invoice no. and amount, read off ODeX by step 1b.
 - **Payment and deposit**: the two UTRs and the date of transfer, from Finance's email. The deposit amount defaults to 40,000, and the refund defaults to a third party, the CHA.
 
 For now ops type these values in. Once the Graph subscription's emails are read, the ingest can fill them.
@@ -151,7 +170,7 @@ The params, the data behind them and the workflows stay the same.
 
 What's still missing for the real SOPs:
 
-1. **The real ODeX pages.** A walk-through or screenshots of ODeX's three forms and two lists, like the ones we have for the RTGS page. That gives the fields, their order and the selectors.
+1. **The real ODeX pages' HTML.** The guide's screenshots show what the invoice steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had. The guide also stops at the invoice: the deposit and the DO request still need screenshots or a walk-through.
 2. **ODeX login.** A test login, and whether login asks for an OTP or a captcha.
 3. **A first real RTGS confirmation.** The RTGS SOP has the real page's selectors but has only run on the local page. Its first real run should be with a real payment, watched. Also: the real page's answer when it turns a request down on the server (a UTR entered twice, say) hasn't been seen.
 4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? On ODeX the app enters the full amount for each house B/L for now. On the RTGS page it confirms one deposit against the MBL, as in the screenshot.

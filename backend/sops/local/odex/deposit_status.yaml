@@ -45,19 +45,14 @@ steps:
     selector: "#login"
 
   - action: wait_for_selector
-    description: Wait for the menus, which only show once logged in
+    description: Wait for the services page
     method: playwright
-    selector: "#menu"
+    selector: "#counter-go"
 
   - action: click
-    description: Open the Counter Process menu
+    description: Open Counter Process (Deposit and Refund)
     method: playwright
-    selector: "#menu-counter-process"
-
-  - action: click
-    description: Go to Deposit and Refund
-    method: playwright
-    selector: "#nav-deposit-refund"
+    selector: "#counter-go"
 
   - action: wait_for_selector
     description: Wait for the list of deposits

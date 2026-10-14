@@ -30,6 +30,7 @@ from app.portal_params import (
     DEPOSIT_STATUS,
     DO_REQUEST,
     DO_REQUEST_STATUS,
+    INVOICE_FETCH,
     REQUEST_INVOICE,
     RTGS_DEPOSIT,
     RTGS_SHIPMENT,
@@ -115,17 +116,28 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     api, engine = do_app
     fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012"}
     assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
-    s = new_shipment(api)
+    s = attach(api, new_shipment(api), "mbl", make_pdf(f"MASTER BILL {MBL}"))
 
-    # IGM filed: request the DO invoice. The liner verifies it and emails it.
-    assert run(api, s, REQUEST_INVOICE)[0]["odex_invoice_request_ref"].startswith("LR")
+    # IGM filed: request the DO invoice on ODeX, the MBL attached as the Seaway BL
+    # (the team's ODeX guide, steps 1-5). The liner releases the invoice on ODeX.
+    assert run(api, s, REQUEST_INVOICE)[0]["odex_invoice_request_ref"].startswith("BL")
+    assert run(api, s, INVOICE_FETCH)[0]["invoice_status"] == "PENDING"  # not out yet: nothing downloaded
     answer(portals, "invoice_requests")
     with portals.store.read() as data:
         invoice = dict(data["invoice_requests"][0])
-    # What the Graph ingest will note from CMA CGM's and Finance's emails.
+    assert invoice["attachments"][0]["name"] == f"MBL-{MBL}.pdf" and invoice["delivery_type"] == "Factory Destuff"
+
+    # Guide, steps 6-10: EDO DETAILS, the request, its invoice. The invoice's PDF goes to
+    # Finance; its number and amount go on the job.
+    reading = run(api, s, INVOICE_FETCH)[0]
+    assert (reading["invoice_no"], reading["invoice_amount"]) == (invoice["invoice_no"], f"{invoice['amount']:.2f}")
+    assert MBL in PdfReader(reading["downloaded_file_path"]).pages[0].extract_text()
+    saved = portal_params.save_readings(api.app.state.rt, s["id"], INVOICE_FETCH, reading)
+    assert saved["do_invoice_no"] == invoice["invoice_no"]
+
+    # What the Graph ingest will note from Finance's email: the UTRs and the date.
     paid = dict(
-        do_invoice_no=invoice["invoice_no"], do_invoice_amount=str(invoice["amount"]), payment_utr="DEMOUTR0001INV",
-        deposit_utr="DEMOUTR0001DEP", payment_date=(date.today() - timedelta(days=1)).isoformat(),
+        payment_utr="DEMOUTR0001INV", deposit_utr="DEMOUTR0001DEP", payment_date=(date.today() - timedelta(days=1)).isoformat(),
     )
     s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": paid}).json()
 
@@ -159,7 +171,6 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
 
     # The DO folder takes the portals' documents like the real ones.
     s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
-    s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL}"))
     s = build(api, engine, s)
     assert s["status"] == "folder_ready", [t["note"] for t in s["tasks"]]
 
@@ -181,9 +192,9 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     text = PdfReader(io.BytesIO(Path(edo["downloaded_file_path"]).read_bytes())).pages[0].extract_text()
     assert HBL in text and "DELIVERY ORDER" in text
 
-    # Every run is in the job's run log: seven steps, the deposit checked twice.
+    # Every run is in the job's run log: eight steps, the invoice and the deposit checked twice.
     runs = api.get(f"/api/shipments/{s['id']}/runs").json()
-    assert len(runs) == 8 and {r["status"] for r in runs} == {"completed"}
+    assert len(runs) == 10 and {r["status"] for r in runs} == {"completed"}
 
 
 def test_the_rtgs_pages_own_checks_stop_a_bad_payment(do_app, portals):

@@ -1,21 +1,27 @@
-# Request the DO invoice on ODeX: Request → Liner Request → Request New Invoice.
-# The first step of the DO process, once CMA CGM has filed the IGM. Runs once per MBL.
+# Request the DO invoice on ODeX, as the team's guide "Delivery Order Request-First
+# step 1" does it (steps 1-5): open ePayment for the MBL's place of delivery, then
+# Requests → Liner Requests → Request New Invoice, enter the BL and attach the MBL as
+# the Seaway BL. The first step of the DO process, once CMA CGM has filed the IGM.
+# Runs once per MBL.
 #
-# Written for the local ODeX (make portals). The real page's selectors aren't known
-# yet; sops/local/README.md says what's needed to point it at the real one.
+# Written for the local ODeX (make portals), whose pages are the guide's screenshots
+# with live buttons and fields over them. The real ODeX's selectors aren't known:
+# that needs its pages' HTML (sops/local/README.md).
 #
 # Params, built by app/portal_params.py (step odex_request_invoice):
-#   odex_url     where ODeX is: DO_ODEX_URL, the local one by default
-#   liner        fixed details: Liner on ODeX
-#   mbl_no       job: Master B/L no. (CMA CGM invoices the master bill)
-#   containers   job: Container nos., comma separated
-#   email        fixed details: Emails for CMA CGM's invoice and receipts (the invoice comes here)
-#   job_no       the job number, entered as the remark
+#   odex_url        where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location   job: ODeX location (the MBL's place of delivery; ICD Tughlakabad is NCR)
+#   liner           fixed details: Liner on ODeX
+#   mbl_no          job: Master B/L no.
+#   delivery_type   job: Delivery type, in ODeX's words (Factory Destuff)
+#   job_no          the job number
+#   mbl_file        the MBL from the DO folder, as MBL-<MBL no.>.pdf
+# "Invoice In Name of" is ODeX's own and the same every time (guide, step 5).
 #
 # Reads back: odex_invoice_request_ref
 metadata:
   name: "Local ODeX - Request New Invoice"
-  version: "0.1"
+  version: "0.2"
 
 credentials:
   username_env: "LOCAL_ODEX_USERNAME"
@@ -45,85 +51,123 @@ steps:
     method: playwright
     selector: "#login"
 
+  # Guide, steps 1-2: the services page; ePayment for the MBL's place of delivery.
   - action: wait_for_selector
-    description: Wait for the menus, which only show once logged in
+    description: Wait for the services page
     method: playwright
-    selector: "#menu"
+    selector: "#epayment-location"
+
+  - action: execute_script
+    description: Choose ePayment's location
+    method: playwright
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#epayment-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
   - action: click
-    description: Open the Request menu
+    description: Open ePayment
     method: playwright
-    selector: "#menu-request"
+    selector: "#epayment-go"
+
+  # Guide, steps 3-4: Requests → Liner Requests → Request New Invoice.
+  - action: wait_for_selector
+    description: Wait for ePayment's main page
+    method: playwright
+    selector: "#edo-search"
 
   - action: click
-    description: Go to Liner Request
+    description: Open the Requests menu
     method: playwright
-    selector: "#nav-liner-request"
+    selector: "#menu-requests"
+
+  - action: click
+    description: Go to Liner Requests
+    method: playwright
+    selector: "#menu-liner-requests"
 
   - action: wait_for_selector
-    description: Wait for the Liner Request page
+    description: Wait for the list of invoice requests
     method: playwright
-    selector: "#new-invoice"
+    selector: "#request-new-invoice"
 
   - action: click
     description: Request New Invoice
     method: playwright
-    selector: "#new-invoice"
+    selector: "#request-new-invoice"
 
+  # Guide, step 5: the BL information and its required document.
   - action: wait_for_selector
-    description: Wait for the invoice request form
+    description: Wait for the new invoice request
     method: playwright
-    selector: "#invoice-form"
+    selector: "#bl-no"
 
   - action: execute_script
-    description: Choose the liner and the Delivery Order invoice
+    description: Choose the liner, BL location, type, type of delivery and attachment type
     method: playwright
     script_args:
       liner: params.liner
-      invoice_type: "Delivery Order"
+      location: params.odex_location
+      bl_type: "Import"
+      delivery: params.delivery_type
+      attachment: "Seaway BL"
     script: |
-      ({ liner, invoice_type }) => {
+      ({ liner, location, bl_type, delivery, attachment }) => {
+        // ODeX's liner names are long ("CMA CGM AGENCIES INDIA PRIVATE LIMITED"): one
+        // that starts with the name given is taken.
         const choose = (selector, wanted) => {
           const select = document.querySelector(selector);
-          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          const want = String(wanted).trim().toUpperCase();
+          const options = [...select.options].filter((o) => o.value);
+          const option = options.find((o) => o.value.toUpperCase() === want || o.text.trim().toUpperCase() === want)
+            || options.find((o) => o.text.trim().toUpperCase().startsWith(want));
           if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
           select.value = option.value;
           select.dispatchEvent(new Event('change', { bubbles: true }));
         };
-        choose('#liner', liner);
-        choose('#invoiceType', invoice_type);
+        choose('#liner-name', liner);
+        choose('#bl-location', location);
+        choose('#bl-type', bl_type);
+        choose('#delivery-type', delivery);
+        choose('#attachment-type-1', attachment);
       }
 
   - action: fill
-    description: Enter the master B/L number
+    description: Enter the BL no. (the master B/L)
     method: playwright
-    selector: "#blNo"
+    selector: "#bl-no"
     value_from: params.mbl_no
 
   - action: fill
-    description: Enter the container numbers
+    description: Enter the job number
     method: playwright
-    selector: "#containers"
-    value_from: params.containers
-
-  - action: fill
-    description: Enter the mailbox the invoice goes to
-    method: playwright
-    selector: "#email"
-    value_from: params.email
-
-  - action: fill
-    description: Enter the job number as the remark
-    method: playwright
-    selector: "#remarks"
+    selector: "#job-no"
     value_from: params.job_no
+
+  - action: upload_file
+    description: Attach the MBL as the Seaway BL
+    method: playwright
+    selector: "#attachment-file-1"
+    file_path_from: params.mbl_file
+
+  - action: fill
+    description: Ask for the tax invoice in the attachment's remarks
+    method: playwright
+    selector: "#attachment-remarks-1"
+    value: "PLEASE RELEASE TAX INVOICE"
 
   # The submit and the check are separate steps: the agent retries a failed step,
   # and only the check is safe to repeat.
   - action: click
     description: Submit the invoice request
     method: playwright
-    selector: "#submit"
+    selector: "#submit-invoice-request"
 
   - action: wait_for_selector
     description: Wait for ODeX's answer

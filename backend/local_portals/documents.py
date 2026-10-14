@@ -173,7 +173,7 @@ def invoice_pdf(
             ("Invoice no.", invoice_no),
             ("Date", day(on)),
             ("B/L no.", bl_no),
-            ("Containers", ", ".join(containers)),
+            ("Containers", ", ".join(containers) or "As per IGM"),
             ("ODeX request", request_ref),
         ]),
         Spacer(0, 6 * mm),

@@ -50,6 +50,13 @@ shipment_groups:
       - { key: containers, label: Container nos., type: containers, code: true }
       - { key: vessel, label: Vessel name }
       - { key: voyage, label: Voyage, code: true }
+      # Where ODeX's services are opened: the MBL's final place of delivery (the
+      # team's ODeX guide, step 1). ICD Tughlakabad is NCR.
+      - key: odex_location
+        label: ODeX location (MBL's place of delivery)
+        type: select
+        options: [NCR, Mundra, Nhava Sheva, Ahmedabad, ICD Baroda, ICD VAPI (VALVADA), Kakinada, Kandla, Kattupalli, Paradip, Chennai, Kolkata]
+        default: NCR
 
   - title: Parties
     fields:

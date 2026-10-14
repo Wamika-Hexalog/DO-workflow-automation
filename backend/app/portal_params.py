@@ -1,13 +1,14 @@
 """What the browser agent types into each portal page, taken from the database.
 
-Seven steps of the CMA CGM process happen on websites (the SOP sheet of DO
-PROCESS FLOW E2E.xlsx). For each one this module names the SOP that does it, and
+Eight steps of the CMA CGM process happen on websites (the SOP sheet of DO
+PROCESS FLOW E2E.xlsx, and the team's ODeX guide for the invoice). For each one this module names the SOP that does it, and
 builds that SOP's params from the job's fields, the fixed details and the job's
 documents. A step won't start while something it needs is missing, and the
 error names everything that is.
 
     step                        site      runs once per   what the SOP gets
-    odex_request_invoice        ODeX      MBL             liner, MBL, containers, emails
+    odex_request_invoice        ODeX      MBL             location, liner, MBL, delivery type, the MBL's PDF
+    odex_invoice_fetch          ODeX      MBL             location, MBL, where to save the invoice
     cma_rtgs_shipment_payment   CMA RTGS  MBL             contact details, the payment, invoice no. and MBL
     cma_rtgs_security_deposit   CMA RTGS  MBL             contact details, the payment, MBL as the OBL
     odex_deposit_new            ODeX      house bill      deposit and its UTR, bank, refund, NOC, receipt
@@ -40,6 +41,7 @@ ODEX = "odex"
 CMA_RTGS = "cma_rtgs"
 
 REQUEST_INVOICE = "odex_request_invoice"
+INVOICE_FETCH = "odex_invoice_fetch"
 RTGS_SHIPMENT = "cma_rtgs_shipment_payment"
 RTGS_DEPOSIT = "cma_rtgs_security_deposit"
 DEPOSIT = "odex_deposit_new"
@@ -49,6 +51,9 @@ DO_REQUEST_STATUS = "odex_do_request_status"
 
 # Hexalog signs the NOC for refunding the deposit to the CHA.
 NOC_STAMP = "hexalog"
+
+# ODeX's words for the job's delivery types.
+ODEX_DELIVERY = {"Factory De-stuff": "Factory Destuff", "CFS De-stuff": "CFS Destuff"}
 
 # The fields the NOC for the refund prints.
 NOC_FIELDS = (
@@ -107,14 +112,14 @@ class _Job:
         value = self.field(key)
         return date.fromisoformat(value).strftime("%d-%m-%Y") if value else ""
 
-    def document(self, doc_key: str) -> str:
+    def document(self, doc_key: str, name: str = "") -> str:
         """A PDF copy of a document attached to the DO folder, named for what it is,
         since the portal shows the name of the file it was given."""
         doc = self.rt.folder.doc(doc_key)
         attached = service.attached(self.session, self.shipment, Slot(doc, None)) if doc else None
         if doc is None or attached is None:
             return self._lack(f"the {doc.title if doc else doc_key} in the DO folder")
-        copy = Path(self.portal_file(f"{doc.title} {self.shipment.data.get('mbl_no') or ''}".strip() + ".pdf"))
+        copy = Path(self.portal_file(name or f"{doc.title} {self.shipment.data.get('mbl_no') or ''}".strip() + ".pdf"))
         copy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(assemble.shipment_dir(self.rt.settings, self.shipment.id) / attached.pdf_file, copy)
         return str(copy)
@@ -147,14 +152,29 @@ class _Job:
 
 
 def _request_invoice(job: _Job, hbl: str | None) -> dict[str, str]:
+    """The team's ODeX guide, steps 1-5. "Invoice In Name of" is ODeX's own, the same every time."""
+    mbl = job.field("mbl_no")
+    delivery = job.field("delivery_type")
     return {
+        # ePayment is opened for the MBL's place of delivery.
+        "odex_location": job.field("odex_location"),
         "liner": job.field("odex_liner"),
         # CMA CGM invoices the master bill.
-        "mbl_no": job.field("mbl_no"),
-        "containers": job.field("containers"),
-        # CMA CGM emails the invoice here once it's verified.
-        "email": job.field("do_mailbox"),
+        "mbl_no": mbl,
+        "delivery_type": ODEX_DELIVERY.get(delivery, delivery),
         "job_no": job.shipment.job_no,
+        # The request's required document: the MBL, as the Seaway BL.
+        "mbl_file": job.document("mbl", f"MBL-{mbl}.pdf") if mbl else "",
+    }
+
+
+def _invoice_fetch(job: _Job, hbl: str | None) -> dict[str, str]:
+    """The team's ODeX guide, steps 6-10: the invoice goes to Finance, with the security deposit."""
+    mbl = job.field("mbl_no")
+    return {
+        "odex_location": job.field("odex_location"),
+        "mbl_no": mbl,
+        "invoice_save_path": job.portal_file(f"DO-invoice-{mbl}.pdf"),
     }
 
 
@@ -241,6 +261,7 @@ class PortalStep:
     per_hbl: bool  # once per house bill, or once per MBL
     reads: tuple[str, ...]  # what the SOP reads back from the page
     build: Callable[[_Job, str | None], dict[str, str]]
+    saves: tuple[tuple[str, str], ...] = ()  # what it read that goes on the job: (reading, field)
 
 
 def _local(path: str) -> Path:
@@ -253,6 +274,13 @@ STEPS: dict[str, PortalStep] = {
         PortalStep(
             REQUEST_INVOICE, "Requesting the DO invoice on ODeX", ODEX,
             _local("odex/request_invoice.yaml"), False, ("odex_invoice_request_ref",), _request_invoice,
+        ),
+        PortalStep(
+            INVOICE_FETCH, "Collecting the DO invoice from ODeX", ODEX,
+            _local("odex/invoice_fetch.yaml"), False,
+            ("odex_invoice_request_ref", "invoice_no", "invoice_amount", "invoice_date", "invoice_status",
+             "downloaded_file_path"),
+            _invoice_fetch, saves=(("invoice_no", "do_invoice_no"), ("invoice_amount", "do_invoice_amount")),
         ),
         PortalStep(
             RTGS_SHIPMENT, "Confirming the shipment payment on CMA CGM's RTGS page", CMA_RTGS,
@@ -323,6 +351,27 @@ def params_job(rt: Runtime, shipment_id: str, step_key: str) -> dict[str, dict[s
             hbl or shipment.data.get("mbl_no") or shipment.job_no: params_for(rt, session, shipment, step_key, hbl)
             for hbl in targets(step, shipment, rt)
         }
+
+
+def save_readings(rt: Runtime, shipment_id: str, step_key: str, reading: dict[str, Any]) -> dict[str, str]:
+    """Puts on the job what a step read off a portal, for the fields the step names
+    (PortalStep.saves), such as the DO invoice's number and amount from ODeX.
+    Returns what it saved. These fields aren't in the DO folder, so a built folder
+    stays current."""
+    step = STEPS[step_key]
+    found = {field: str(reading[key]).strip() for key, field in step.saves if str(reading.get(key) or "").strip()}
+    if not found:
+        return {}
+    with rt.sessionmaker() as session:
+        shipment = service.load_shipment(session, shipment_id)
+        problems = rt.folder.validate(found, "shipment")
+        saved = {key: value for key, value in found.items() if key not in problems}
+        if saved:
+            shipment.data = {**shipment.data, **saved}
+            read = ", ".join(f"{rt.folder.fields[key].label} {value}" for key, value in saved.items())
+            service.log(session, shipment.id, "portal", f"{step.title}: read {read}.")
+            session.commit()
+    return saved
 
 
 def _as_text(field: FieldDef, value: Any) -> str:

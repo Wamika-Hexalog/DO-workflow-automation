@@ -13,6 +13,7 @@ from app.portal_params import (
     DEPOSIT,
     DEPOSIT_STATUS,
     DO_REQUEST,
+    INVOICE_FETCH,
     REQUEST_INVOICE,
     RTGS_DEPOSIT,
     RTGS_SHIPMENT,
@@ -43,10 +44,10 @@ def set_fixed(api, **values: str) -> None:
 
 
 def test_each_step_says_what_it_still_needs(api):
-    with pytest.raises(MissingData) as missing:
-        params(api, new_shipment(api, containers=""), REQUEST_INVOICE)
-    assert str(missing.value) == "Requesting the DO invoice on ODeX needs Container nos. first."
     s = new_shipment(api)
+    with pytest.raises(MissingData) as missing:
+        params(api, s, REQUEST_INVOICE)
+    assert str(missing.value) == "Requesting the DO invoice on ODeX needs the MBL (Master Bill of Lading) in the DO folder first."
     with pytest.raises(MissingData) as missing:
         params(api, s, RTGS_SHIPMENT)
     assert str(missing.value) == (
@@ -66,16 +67,18 @@ def test_each_step_says_what_it_still_needs(api):
 
 def test_the_invoice_request_and_the_payments_come_from_the_job(api):
     set_fixed(api, do_mailbox="do-desk@example.com", payer_account_no="123456789012")
-    s = set_values(api, new_shipment(api, containers="TCNU5191327\nCMAU9987728"), **PAID)
-    assert params(api, s, REQUEST_INVOICE) == {
-        MBL: {
-            "liner": "CMA CGM",
-            "mbl_no": MBL,
-            "containers": "TCNU5191327, CMAU9987728",
-            "email": "do-desk@example.com",
-            "job_no": s["job_no"],
-            "odex_url": "http://127.0.0.1:8100/odex",
-        }
+    s = set_values(api, new_shipment(api), **PAID)
+    s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL}"))
+    request = params(api, s, REQUEST_INVOICE)[MBL]
+    # The MBL goes as the request's Seaway BL, named as the team's ODeX guide names it.
+    assert Path(request.pop("mbl_file")).name == f"MBL-{MBL}.pdf"
+    assert request == {
+        "odex_location": "NCR",
+        "liner": "CMA CGM",
+        "mbl_no": MBL,
+        "delivery_type": "Factory Destuff",  # ODeX's words for Factory De-stuff
+        "job_no": s["job_no"],
+        "odex_url": "http://127.0.0.1:8100/odex",
     }
     # CMA CGM's RTGS page is filed twice: the shipment payment, then the security deposit.
     assert params(api, s, RTGS_SHIPMENT)[MBL] == {
@@ -95,6 +98,25 @@ def test_the_invoice_request_and_the_payments_come_from_the_job(api):
     deposit = params(api, s, RTGS_DEPOSIT)[MBL]
     assert (deposit["security_deposit"], deposit["invoice_no"], deposit["bl_no"]) == ("yes", "", MBL)
     assert (deposit["utr"], deposit["amount"]) == ("DEMOUTR0431DEP", "40000.00")
+
+
+def test_the_invoice_odex_shows_goes_on_the_job(api):
+    s = new_shipment(api)
+    fetch = params(api, s, INVOICE_FETCH)[MBL]
+    assert (fetch["odex_location"], fetch["mbl_no"]) == ("NCR", MBL)
+    assert fetch["invoice_save_path"].endswith(f"/portal/DO-invoice-{MBL}.pdf")
+
+    rt = api.app.state.rt
+    reading = {"invoice_no": "INV-DEMO-00001", "invoice_amount": "54720.68", "invoice_status": "OPEN"}
+    assert portal_params.save_readings(rt, s["id"], INVOICE_FETCH, reading) == {
+        "do_invoice_no": "INV-DEMO-00001", "do_invoice_amount": "54720.68",
+    }
+    s = api.get(f"/api/shipments/{s['id']}").json()
+    assert (s["values"]["do_invoice_no"], s["values"]["do_invoice_amount"]) == ("INV-DEMO-00001", "54720.68")
+    log = [e["detail"] for e in api.get(f"/api/shipments/{s['id']}/events").json()]
+    assert "Collecting the DO invoice from ODeX: read DO invoice no. INV-DEMO-00001, DO invoice amount (₹) 54720.68." in log
+    # Before the liner releases it, there is nothing to put on the job.
+    assert portal_params.save_readings(rt, s["id"], INVOICE_FETCH, {"invoice_no": "", "invoice_status": "PENDING"}) == {}
 
 
 def test_a_deposit_refunded_to_the_cha_carries_hexalogs_noc(api):

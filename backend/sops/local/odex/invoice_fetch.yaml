@@ -1,0 +1,147 @@
+# Collect the DO invoice from ODeX, as the team's guide "Delivery Order Request-First
+# step 1" does it (steps 6-10): search the MBL with EDO DETAILS, open the BL's invoice
+# request, read its invoice, and download the invoice PDF, which goes to Finance
+# with the security deposit. Runs once per MBL, once the liner has released the
+# invoice. It only reads, so it's safe to run again: before the release it reports
+# the request's status and downloads nothing.
+#
+# Written for the local ODeX (make portals), whose pages are the guide's screenshots
+# with live buttons and fields over them. The real ODeX's selectors aren't known:
+# that needs its pages' HTML (sops/local/README.md).
+#
+# Params, built by app/portal_params.py (step odex_invoice_fetch):
+#   odex_url           where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location      job: ODeX location (the MBL's place of delivery)
+#   mbl_no             job: Master B/L no.
+#   invoice_save_path  where to save the invoice PDF, with the job's files
+#
+# Reads back: odex_invoice_request_ref, invoice_no, invoice_amount, invoice_date,
+# invoice_status, and downloaded_file_path once the invoice is saved. The invoice's
+# number and amount go on the job (DO invoice no. and amount).
+metadata:
+  name: "Local ODeX - Collect the DO invoice"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the services page
+    method: playwright
+    selector: "#epayment-location"
+
+  - action: execute_script
+    description: Choose ePayment's location
+    method: playwright
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#epayment-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: click
+    description: Open ePayment
+    method: playwright
+    selector: "#epayment-go"
+
+  # Guide, step 6: the MBL in EDO DETAILS on ePayment's main page.
+  - action: wait_for_selector
+    description: Wait for ePayment's main page
+    method: playwright
+    selector: "#edo-search"
+
+  - action: fill
+    description: Enter the MBL in the EDO DETAILS search
+    method: playwright
+    selector: "#edo-search"
+    value_from: params.mbl_no
+
+  - action: click
+    description: EDO DETAILS
+    method: playwright
+    selector: "#edo-details"
+
+  # Guide, step 8: the BL's status, and its request.
+  - action: wait_for_selector
+    description: Wait for the BL's status
+    method: playwright
+    selector: "#bl-status-bl"
+
+  - action: execute_script
+    description: Make sure the BL has an invoice request
+    method: playwright
+    script_args:
+      mbl_no: params.mbl_no
+    script: |
+      ({ mbl_no }) => {
+        if (!document.querySelector('#bl-request')) throw new Error(`ODeX has no invoice request for BL ${mbl_no}`);
+      }
+
+  - action: click
+    description: Open the request
+    method: playwright
+    selector: "#bl-request"
+
+  # Guide, steps 9-10: the invoice, and its PDF.
+  - action: wait_for_selector
+    description: Wait for the invoice request's page
+    method: playwright
+    selector: "#invoice-no"
+
+  - action: execute_script
+    description: Read the invoice
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const text = (id) => document.getElementById(id).textContent.trim();
+        const invoiceNo = text('invoice-no');
+        return {
+          odex_invoice_request_ref: document.querySelector('#screen-view-invoice').dataset.requestRef,
+          invoice_no: invoiceNo,
+          invoice_amount: text('invoice-amount'),
+          invoice_date: text('invoice-date'),
+          invoice_status: text('invoice-status'),
+          set_params: { invoice_ready: Boolean(invoiceNo) },
+        };
+      }
+
+  - action: download_file
+    description: Download the invoice, once it's released
+    method: playwright
+    condition: params.invoice_ready
+    selector: "#invoice-attachment"
+    save_path_from: params.invoice_save_path
+
+  - action: end
+    description: Done

@@ -107,6 +107,7 @@ def page(
     status_code: int = 200,
     body_attrs: str = "",
     style: str = "",
+    header: bool = True,
 ) -> HTMLResponse:
     name = SITE_NAMES[site]
     scripts = (_MENU_SCRIPT if menu else "") + script
@@ -117,7 +118,7 @@ def page(
 <body{f" {body_attrs}" if body_attrs else ""}>
 <div class="demo" id="demo-banner"><b>Local demo.</b> {not_real} only on this machine, and nothing entered
 here reaches CMA CGM, ODeX or a bank.</div>
-<header class="site"><span class="name">{esc(name)} <small>local</small></span>{menu}{user}</header>
+{f'<header class="site"><span class="name">{esc(name)} <small>local</small></span>{menu}{user}</header>' if header else ""}
 <main>{body}</main>
 {f"<script>{scripts}</script>" if scripts else ""}
 </body></html>"""

@@ -34,7 +34,7 @@ EDO_VALID_DAYS = 14
 
 # Each kind of request, and the status in which it waits for CMA CGM.
 WAITING = {
-    "invoice_requests": "Submitted",
+    "invoice_requests": "Pending",
     "rtgs_requests": "Received",
     "deposits": "Pending Approval",
     "do_requests": "Submitted",
@@ -61,10 +61,11 @@ def _email(data: dict[str, Any], to: str, subject: str, body: str, attachments: 
 
 
 def verify_invoice(store: Store, item_id: str) -> str:
-    """The liner checks the invoice request and emails its DO invoice."""
+    """The liner checks the invoice request and releases its DO invoice on ODeX,
+    where ops download it (BL Status → the request → its attachment)."""
     with store.change() as data:
         request = _waiting(data, "invoice_requests", item_id)
-        count = max(1, len(request["containers"]))
+        count = max(1, len(request.get("containers") or []))
         lines = [
             (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
             if basis == "per container"
@@ -77,19 +78,14 @@ def verify_invoice(store: Store, item_id: str) -> str:
         invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
         pdf = documents.invoice_pdf(
             invoice_no=invoice_no, on=date.today().isoformat(), liner=request["liner"], bl_no=request["bl_no"],
-            containers=request["containers"], request_ref=request["ref"], lines=lines, gst=gst, total=total,
+            containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst, total=total,
         )
-        file_id = store.add_file(data, pdf, f"DO invoice {invoice_no}.pdf")
-        request.update(status="Invoice Verified", invoice_no=invoice_no, amount=total, invoice_file=file_id, answered_at=now())
-        _email(
-            data,
-            request["email"],
-            f"DO invoice {invoice_no} for B/L {request['bl_no']}",
-            f"The DO invoice for B/L {request['bl_no']} is verified: Rs. {documents.money(total)}. Pay it by "
-            "RTGS/NEFT with the security deposit, then enter both payments on the RTGS payments site.",
-            [file_id],
+        file_id = store.add_file(data, pdf, f"{invoice_no}.pdf")
+        request.update(
+            status="Released", invoice_no=invoice_no, amount=total, invoice_file=file_id,
+            invoice_date=date.today().isoformat(), answered_at=now(),
         )
-    return f"Verified {request['ref']}: invoice {invoice_no} for Rs. {documents.money(total)}, emailed to {request['email']}."
+    return f"Released {request['ref']}: invoice {invoice_no} for Rs. {documents.money(total)}, on ODeX for BL {request['bl_no']}."
 
 
 def send_receipts(store: Store, item_id: str) -> str:

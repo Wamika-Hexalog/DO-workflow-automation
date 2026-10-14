@@ -1,14 +1,16 @@
-"""The local ODeX. After logging in, the three pages the DO process uses, under the
-same menus as the real site (the SOP sheet of DO PROCESS FLOW E2E.xlsx):
+"""The local ODeX: its login, its files, and the plain pages for the steps no
+screenshot shows yet (the SOP sheet of DO PROCESS FLOW E2E.xlsx):
 
-    Request → Liner Request → Request New Invoice
     Counter Process → Deposit and Refund → New Deposit
     e-Payment → DO Request → New DO Request
+
+The pages the team's ODeX guide shows (from the services page to the invoice) are
+screenshots with live buttons over them, in odex_screens.py.
 
 Requests then wait for CMA CGM, which the control panel plays. Every form answers
 with an #outcome element the SOPs read (pages.outcome), and each list marks its
 rows with data-bl, data-ref and data-status for the SOPs that check a request and
-download its slip or eDO. The real pages' fields aren't known yet: these follow
+download its slip or eDO. These pages' real fields aren't known yet: they follow
 the SOP sheet and the sample documents.
 """
 from __future__ import annotations
@@ -30,19 +32,18 @@ router = APIRouter(prefix="/odex")
 
 COOKIE = "odex_session"
 LINERS = ("CMA CGM", "COSCO", "Hapag-Lloyd", "Maersk", "MSC", "ONE")
-INVOICE_TYPES = ("Delivery Order", "Detention", "Ground Rent")
 PAYMENT_MODES = ("RTGS/NEFT", "DD/Pay Order", "Cheque")
 REFUND_TO = ("Consignee", "Third Party")
 DO_TYPES = ("E-DO", "D/O")
 DELIVERY_TYPES = ("Factory De-stuff", "CFS De-stuff", "LCL", "DPD")
 DOC_TYPES = ("DO folder (combined PDF)", "Bill of lading", "Receipt", "NOC", "Other")
-INVOICES = "/odex/request/liner-request"
+INVOICES = "/odex/epayment/liner-requests"
 DEPOSITS = "/odex/counter-process/deposit-refund"
 DO_REQUESTS = "/odex/e-payment/do-request"
 
 MENU = pages.menu(
     [
-        ("request", "Request", [("liner-request", "Liner Request", INVOICES)]),
+        ("request", "Request", [("liner-request", "Liner Requests", INVOICES)]),
         ("counter-process", "Counter Process", [("deposit-refund", "Deposit and Refund", DEPOSITS)]),
         ("e-payment", "e-Payment", [("do-request", "DO Request", DO_REQUESTS)]),
     ]
@@ -52,19 +53,19 @@ MENU = pages.menu(
 # Helpers ----------------------------------------------------------------------
 
 
-def _store(request: Request) -> Store:
+def store_of(request: Request) -> Store:
     return request.app.state.store
 
 
-def _user(request: Request) -> str | None:
+def current_user(request: Request) -> str | None:
     token = request.cookies.get(COOKIE)
     if not token:
         return None
-    with _store(request).read() as data:
+    with store_of(request).read() as data:
         return data["sessions"].get(token)
 
 
-def _to_login(request: Request) -> RedirectResponse:
+def to_login(request: Request) -> RedirectResponse:
     return RedirectResponse(f"/odex/login?next={quote(request.url.path)}", status_code=303)
 
 
@@ -109,7 +110,7 @@ def _when(item: dict[str, Any]) -> str:
 
 @router.get("")
 def root(request: Request) -> Response:
-    return RedirectResponse("/odex/home" if _user(request) else "/odex/login", status_code=303)
+    return RedirectResponse("/odex/home" if current_user(request) else "/odex/login", status_code=303)
 
 
 @router.get("/login")
@@ -142,7 +143,7 @@ async def login(request: Request) -> Response:
     if not (right_user and right_password):
         return RedirectResponse(f"/odex/login?failed=1&next={quote(target)}", status_code=303)
     token = secrets.token_urlsafe(24)
-    with _store(request).change() as data:
+    with store_of(request).change() as data:
         data["sessions"][token] = username
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(COOKIE, token, httponly=True, samesite="lax", path="/odex")
@@ -153,33 +154,18 @@ async def login(request: Request) -> Response:
 def logout(request: Request) -> Response:
     token = request.cookies.get(COOKIE)
     if token:
-        with _store(request).change() as data:
+        with store_of(request).change() as data:
             data["sessions"].pop(token, None)
     response = RedirectResponse("/odex/login", status_code=303)
     response.delete_cookie(COOKIE, path="/odex")
     return response
 
 
-@router.get("/home")
-def home(request: Request) -> Response:
-    user = _user(request)
-    if user is None:
-        return _to_login(request)
-    body = """<h1>Welcome</h1>
-<p class="path">The DO process uses three pages, each under a menu above.</p>
-<div class="card"><ul>
-<li><b>Request → Liner Request</b>: request the DO invoice from the liner, against the master B/L.</li>
-<li><b>Counter Process → Deposit and Refund</b>: register the security deposit, once per B/L, then download its slip.</li>
-<li><b>e-Payment → DO Request</b>: raise the DO request per house B/L with the DO folder, then download the eDO.</li>
-</ul></div>"""
-    return _page("Home", body, user)
-
-
 @router.get("/files/{file_id}")
 def download(file_id: str, request: Request) -> Response:
-    if _user(request) is None:
-        return _to_login(request)
-    found = _store(request).file(file_id)
+    if current_user(request) is None:
+        return to_login(request)
+    found = store_of(request).file(file_id)
     if found is None:
         return Response("No such file.", status_code=404)
     name, path = found
@@ -187,103 +173,15 @@ def download(file_id: str, request: Request) -> Response:
     return FileResponse(path, media_type="application/pdf", filename=name)
 
 
-# Request → Liner Request -------------------------------------------------------
-
-
-@router.get("/request/liner-request")
-def invoice_requests(request: Request) -> Response:
-    user = _user(request)
-    if user is None:
-        return _to_login(request)
-    with _store(request).read() as data:
-        items = list(reversed(data["invoice_requests"]))
-    rows = [
-        _row(r, [
-            esc(r["ref"]), esc(r["liner"]), esc(r["invoice_type"]), esc(r["bl_no"]), pages.status(r["status"]),
-            esc(r.get("invoice_no") or ""), pages.money(r["amount"]) if r.get("amount") else "", _when(r),
-        ])
-        for r in items
-    ]
-    body = f"""<h1>Liner Request</h1><p class="path">Request → Liner Request</p>
-<p><a class="btn primary" id="new-invoice" href="{INVOICES}/new">Request New Invoice</a></p>
-{pages.table("invoice-requests", ["Request no.", "Liner", "Type", "B/L no.", "Status", "Invoice no.", "Amount (Rs.)", "Requested"], rows, "No invoice requests yet.")}
-<p class="hint">The liner emails the invoice once it has verified the request.</p>"""
-    return _page("Liner Request", body, user)
-
-
-@router.get("/request/liner-request/new")
-def new_invoice_page(request: Request) -> Response:
-    user = _user(request)
-    if user is None:
-        return _to_login(request)
-    body = f"""<h1>Request New Invoice</h1><p class="path">Request → Liner Request → Request New Invoice</p>
-<div class="card"><form method="post" action="{INVOICES}/new" id="invoice-form" class="grid">
-{pages.select("liner", "Liner", LINERS)}
-{pages.select("invoiceType", "Invoice type", INVOICE_TYPES)}
-{pages.field("blNo", "B/L number", hint="The master B/L the liner invoices")}
-{pages.field("containers", "Container numbers", hint="Separate several with commas")}
-{pages.field("email", "Email(s) for the invoice", hint="The liner emails the invoice here. At most 3, separated by commas")}
-{pages.field("remarks", "Remarks")}
-<div class="actions"><button class="btn primary" id="submit" type="submit">Request Invoice</button>
-<a class="btn" href="{INVOICES}">Cancel</a></div>
-</form></div>"""
-    return _page("Request New Invoice", body, user)
-
-
-@router.post("/request/liner-request/new")
-async def create_invoice_request(request: Request) -> Response:
-    user = _user(request)
-    if user is None:
-        return _to_login(request)
-    form = await request.form()
-    liner, kind, email = forms.text(form, "liner"), forms.text(form, "invoiceType"), forms.text(form, "email")
-    addresses = forms.emails(email)
-    bl_no, containers = forms.code(forms.text(form, "blNo")), forms.containers(forms.text(form, "containers"))
-    problems = []
-    if liner not in LINERS:
-        problems.append("Choose the liner.")
-    if kind not in INVOICE_TYPES:
-        problems.append("Choose the invoice type.")
-    if not forms.BL.match(bl_no):
-        problems.append("Enter the B/L number.")
-    if not containers:
-        problems.append("Enter the container numbers.")
-    elif bad := [c for c in containers if not forms.CONTAINER.match(c)]:
-        problems.append(f"Not a container number: {', '.join(bad)}.")
-    if addresses is None:
-        problems.append("Enter one to three email addresses for the invoice, separated by commas.")
-    back = (INVOICES, "Back to Liner Request")
-    path = "Request → Liner Request → Request New Invoice"
-    try:
-        if problems:
-            raise forms.Rejected(*problems)
-        with _store(request).change() as data:
-            for earlier in data["invoice_requests"]:
-                if earlier["bl_no"] == bl_no and earlier["invoice_type"] == kind and earlier["status"] != "Rejected":
-                    raise forms.Rejected(f"A {kind} invoice is already requested for B/L {bl_no}: {earlier['ref']} ({earlier['status']}).")
-            ref = next_ref(data, "LR", 4)
-            data["invoice_requests"].append({
-                "id": secrets.token_hex(6), "ref": ref, "liner": liner, "invoice_type": kind, "bl_no": bl_no,
-                "containers": containers, "email": ", ".join(addresses or []), "remarks": forms.text(form, "remarks"),
-                "status": "Submitted", "created_at": now(), "by": user,
-            })
-    except forms.Rejected as rejected:
-        return _answer(user, "Request New Invoice", path, back, problems=rejected.problems)
-    return _answer(
-        user, "Request New Invoice", path, back, ref=ref,
-        message=f"Invoice request {ref} submitted for B/L {bl_no}. The liner emails the invoice to {email} once verified.",
-    )
-
-
 # Counter Process → Deposit and Refund -------------------------------------------
 
 
 @router.get("/counter-process/deposit-refund")
 def deposits(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
-    with _store(request).read() as data:
+        return to_login(request)
+    with store_of(request).read() as data:
         items = list(reversed(data["deposits"]))
     rows = [
         _row(d, [
@@ -313,9 +211,9 @@ showThirdParty();
 
 @router.get("/counter-process/deposit-refund/new")
 def new_deposit_page(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
+        return to_login(request)
     pdf = 'accept="application/pdf,.pdf"'
     body = f"""<h1>New Deposit</h1><p class="path">Counter Process → Deposit and Refund → New Deposit</p>
 <div class="card"><form method="post" action="{DEPOSITS}/new" id="deposit-form" class="grid" enctype="multipart/form-data">
@@ -344,9 +242,9 @@ def new_deposit_page(request: Request) -> Response:
 
 @router.post("/counter-process/deposit-refund/new")
 async def create_deposit(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
+        return to_login(request)
     form = await request.form()
     liner, mode, bank = forms.text(form, "liner"), forms.text(form, "paymentMode"), forms.text(form, "bankName")
     refund_to, third_party = forms.text(form, "refundTo"), forms.text(form, "thirdPartyName")
@@ -376,7 +274,7 @@ async def create_deposit(request: Request) -> Response:
     receipt = await forms.attachment(form, "receiptFile", "security deposit receipt", problems, required=True)
     back = (DEPOSITS, "Back to Deposit and Refund")
     path = "Counter Process → Deposit and Refund → New Deposit"
-    store = _store(request)
+    store = store_of(request)
     try:
         if problems:
             raise forms.Rejected(*problems)
@@ -407,10 +305,10 @@ async def create_deposit(request: Request) -> Response:
 
 @router.get("/e-payment/do-request")
 def do_requests(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
-    with _store(request).read() as data:
+        return to_login(request)
+    with store_of(request).read() as data:
         items = list(reversed(data["do_requests"]))
     rows = [
         _row(r, [
@@ -447,9 +345,9 @@ document.getElementById('addRow').addEventListener('click', () => {{
 
 @router.get("/e-payment/do-request/new")
 def new_do_request_page(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
+        return to_login(request)
     body = f"""<h1>New DO Request</h1><p class="path">e-Payment → DO Request → New DO Request</p>
 <div class="card"><form method="post" action="{DO_REQUESTS}/new" id="do-request-form" class="grid" enctype="multipart/form-data">
 {pages.select("liner", "Liner", LINERS)}
@@ -470,9 +368,9 @@ def new_do_request_page(request: Request) -> Response:
 
 @router.post("/e-payment/do-request/new")
 async def create_do_request(request: Request) -> Response:
-    user = _user(request)
+    user = current_user(request)
     if user is None:
-        return _to_login(request)
+        return to_login(request)
     form = await request.form()
     liner, do_type, delivery = forms.text(form, "liner"), forms.text(form, "doType"), forms.text(form, "deliveryType")
     bl_no, containers = forms.code(forms.text(form, "blNo")), forms.containers(forms.text(form, "containers"))
@@ -502,7 +400,7 @@ async def create_do_request(request: Request) -> Response:
         problems.append("Add a row and attach the DO documents.")
     back = (DO_REQUESTS, "Back to DO Request")
     path = "e-Payment → DO Request → New DO Request"
-    store = _store(request)
+    store = store_of(request)
     try:
         if problems:
             raise forms.Rejected(*problems)

@@ -79,7 +79,8 @@ def unreachable(url: str) -> str | None:
 
 def run_once(
     rt: Runtime, sop: Path, params: dict[str, Any], label: str, max_iterations: int, *, shipment_id: str = "", task_key: str = ""
-) -> bool:
+) -> dict[str, Any] | None:
+    """Runs the SOP and prints what happened. Returns what the agent read back, or None if it failed."""
     print(f"\n{label}: running {sop.name} {'headless' if rt.settings.browser_headless else 'in a visible browser'}")
     try:
         result = asyncio.run(
@@ -94,11 +95,12 @@ def run_once(
             print(f"Run log: {run.sop_name}, {run.status}, {run.completed_steps} of {run.total_steps} steps in {run.duration_seconds} s")
     if error:
         print(f"The SOP failed: {error}")
-        return False
+        return None
+    reading = result.get("extraction_data") or {}
     print("What the agent read back:")
-    for key, value in (result.get("extraction_data") or {}).items():
+    for key, value in reading.items():
         print(f"  {key}: {value}")
-    return True
+    return reading
 
 
 def run_step(rt: Runtime, args: argparse.Namespace, sop: Path | None) -> int:
@@ -122,8 +124,11 @@ def run_step(rt: Runtime, args: argparse.Namespace, sop: Path | None) -> int:
         print(f"\n{label}, with:")
         for key, value in params.items():
             print(f"  {key}: {value}")
-        ran = run_once(rt, sop or step.sop, params, label, args.max_iterations, shipment_id=shipment.id, task_key=step.key)
-        ok = ran and ok
+        reading = run_once(rt, sop or step.sop, params, label, args.max_iterations, shipment_id=shipment.id, task_key=step.key)
+        if reading is None:
+            ok = False
+        elif saved := portal_params.save_readings(rt, shipment.id, step.key, reading):
+            print("Put on the job: " + ", ".join(f"{key} = {value}" for key, value in saved.items()))
     return 0 if ok else 1
 
 
@@ -165,10 +170,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as scratch:
         settings = replace(settings, database_url=f"sqlite:///{scratch}/runs.db", seed_demo_data=False)
         rt = Runtime(settings, load_folder(settings.folder_path), make_sessionmaker(settings.database_url), make_client(settings))
-        ok = run_once(rt, sop, parse_params(parser, args.param), sop.stem, args.max_iterations)
-        if ok:
+        reading = run_once(rt, sop, parse_params(parser, args.param), sop.stem, args.max_iterations)
+        if reading is not None:
             print("\nThe browser agent works.")
-        return 0 if ok else 1
+        return 0 if reading is not None else 1
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/control")
 
 # Each kind of request: its heading, what answering it means, and whether it can be turned down.
 SECTIONS = (
-    ("invoice_requests", "ODeX: DO invoice requests", "Verify and email the invoice", False),
+    ("invoice_requests", "ODeX: DO invoice requests", "Release the invoice", False),
     ("rtgs_requests", "CMA CGM RTGS: payment confirmations", "Find the payment and email the receipt", False),
     ("deposits", "ODeX: security deposits", "Approve the deposit", True),
     ("do_requests", "ODeX: DO requests", "Issue the eDO", True),
@@ -51,7 +51,11 @@ def _file(file_id: str | None, data: dict[str, Any]) -> str:
 def _details(kind: str, item: dict[str, Any], data: dict[str, Any]) -> str:
     """What the request says, the way CMA CGM's staff would look it over."""
     if kind == "invoice_requests":
-        lines = [f"{esc(item['invoice_type'])} for {esc(', '.join(item['containers']))}", f"to {esc(item['email'])}"]
+        lines = [
+            ", ".join(esc(item.get(key) or "") for key in ("liner", "bl_location", "type", "delivery_type")),
+            f"Job {esc(item.get('job_no') or '-')}",
+            " ".join(f"{esc(a['type'])}: {_file(a['file'], data)}" for a in item.get("attachments", [])),
+        ]
         if item.get("invoice_no"):
             lines.append(f"{esc(item['invoice_no'])}: Rs. {pages.money(item['amount'])} {_file(item.get('invoice_file'), data)}")
     elif kind == "rtgs_requests":

@@ -11,20 +11,24 @@ from html import unescape
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from pypdf import PdfReader
 
 from conftest import HBL, MBL, make_pdf
 from local_portals import cma
 from local_portals.main import create_app
 
-INVOICES = "/odex/request/liner-request"
+INVOICES = "/odex/epayment/liner-requests"
+BL_STATUS = "/odex/epayment/bl-status"
 DEPOSITS = "/odex/counter-process/deposit-refund"
 DO_REQUESTS = "/odex/e-payment/do-request"
 RTGS = "/cma-rtgs/index.php/Finance/RTGS/NewRequest/"
 
+# Request New Invoice, as the team's ODeX guide fills it (step 5).
 INVOICE_FORM = dict(
-    liner="CMA CGM", invoiceType="Delivery Order", blNo=MBL, containers="TCNU5191327",
-    email="do-desk@example.com", remarks="HXL/IMP/26-27/0431",
+    liner_name="CMA CGM AGENCIES INDIA PRIVATE LIMITED", bl_no=MBL, bl_location="NCR", bl_type="Import",
+    delivery_type="Factory Destuff", job_no="HXL/IMP/26-27/0431", attachment_type_1="Seaway BL",
+    attachment_remarks_1="PLEASE RELEASE TAX INVOICE",
 )
 # Rows of the RTGS page's invoice grid, as it posts them: Security Deposit,
 # Invoice Number, BL Number, Amount, Remarks.
@@ -42,13 +46,23 @@ DO_REQUEST_FORM = dict(
 )
 
 
+def log_in(client: TestClient):
+    return client.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+
+
 @pytest.fixture()
 def web(tmp_path, monkeypatch):
     monkeypatch.delenv("LOCAL_ODEX_USERNAME", raising=False)
     monkeypatch.delenv("LOCAL_ODEX_PASSWORD", raising=False)
-    with TestClient(create_app(tmp_path / "portals", autoplay=False)) as client:
-        client.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+    with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=tmp_path / "no-screens")) as client:
+        log_in(client)
         yield client
+
+
+def ask_invoice(web: TestClient, **fields: str):
+    """Submits Request New Invoice with the MBL attached as the Seaway BL."""
+    attachment = {"attachment_file_1": pdf(f"MBL-{MBL}.pdf", f"MASTER BILL {MBL}")}
+    return web.post(f"{INVOICES}/new", data={**INVOICE_FORM, **fields}, files=attachment)
 
 
 def rtgs_form(rows: list[list], **fields: str | None) -> dict[str, str]:
@@ -101,7 +115,7 @@ def stored_text(web: TestClient, file_id: str) -> str:
 
 
 def test_odex_asks_for_the_login(tmp_path):
-    with TestClient(create_app(tmp_path / "portals", autoplay=False)) as web:
+    with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=tmp_path / "no-screens")) as web:
         response = web.get("/odex/home", follow_redirects=False)
         assert response.status_code == 303 and response.headers["location"] == "/odex/login?next=/odex/home"
 
@@ -109,34 +123,67 @@ def test_odex_asks_for_the_login(tmp_path):
         assert 'id="login-error"' in wrong.text
 
         home = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
-        assert 'id="menu"' in home.text and "Local demo." in home.text
+        assert 'id="epayment-location"' in home.text and "Local demo." in home.text
         # The login page only offers the next page within ODeX.
         away = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "//elsewhere"}, follow_redirects=False)
         assert away.headers["location"] == "/odex/home"
 
 
-def test_an_invoice_request_is_checked_then_verified_by_the_liner(web):
-    turned_down = outcome(web.post(f"{INVOICES}/new", data={**INVOICE_FORM, "containers": "TCNU51913", "email": "x"}))
+def test_the_odex_guide_from_invoice_request_to_invoice(web):
+    # Guide, steps 1-4: the services, ePayment for the location, Requests → Liner Requests.
+    services = web.get("/odex/home").text
+    assert 'id="epayment-location"' in services and 'id="epayment-go"' in services
+    dashboard = web.get("/odex/epayment?location=NCR")
+    assert 'id="menu-liner-requests"' in dashboard.text and dashboard.cookies.get("odex_location") == "NCR"
+    assert "No invoice requests yet." in web.get(INVOICES).text
+
+    # Step 5: Request New Invoice checks what it's given, then takes it.
+    turned_down = outcome(web.post(f"{INVOICES}/new", data={**INVOICE_FORM, "bl_no": "", "delivery_type": ""}))
     assert turned_down["status"] == "rejected"
-    assert "Not a container number: TCNU51913." in turned_down["message"]
-    assert "Enter one to three email addresses for the invoice, separated by commas." in turned_down["message"]
+    assert "Enter the BL no." in turned_down["message"] and "Select the type of delivery." in turned_down["message"]
+    assert "Attach the BL attachment." in turned_down["message"]
+    listed = ask_invoice(web)
+    accepted = outcome(listed)  # a notice on the list, which now shows the request
+    assert accepted["status"] == "accepted" and accepted["reference"].startswith("BL")
+    assert f">{MBL}<" in listed.text and ">Pending<" in listed.text
+    assert "is already there" in outcome(ask_invoice(web))["message"]
 
-    accepted = outcome(web.post(f"{INVOICES}/new", data=INVOICE_FORM))
-    assert accepted["status"] == "accepted" and accepted["reference"].startswith("LR")
-    twice = outcome(web.post(f"{INVOICES}/new", data=INVOICE_FORM))
-    assert twice["status"] == "rejected" and accepted["reference"] in twice["message"]
+    # Steps 6-8: EDO DETAILS finds the request; its invoice isn't out yet.
+    status = web.get(f"{BL_STATUS}?bl_no={MBL.lower()}").text
+    assert 'id="bl-request"' in status and 'id="bl-invoice"' not in status
+    assert "No request for this BL yet." in web.get(f"{BL_STATUS}?bl_no=GGZ0000000").text
 
+    # The liner releases the invoice on ODeX: nothing is emailed (guide, step 10).
     request = items(web, "invoice_requests")[0]
     said = cma.verify_invoice(web.app.state.store, request["id"])
     assert "Rs. 54,720.68" in said  # one container, as on the sample DO receipt
-    request = items(web, "invoice_requests")[0]
-    assert request["status"] == "Invoice Verified"
-    mail = items(web, "outbox")[0]
-    assert mail["to"] == "do-desk@example.com" and request["invoice_no"] in mail["subject"]
-    invoice = stored_text(web, mail["attachments"][0])
-    assert MBL in invoice and "54,720.68" in invoice and "LOCAL DEMO" in invoice
+    assert items(web, "invoice_requests")[0]["status"] == "Released" and items(web, "outbox") == []
     with pytest.raises(cma.NotWaiting):
         cma.verify_invoice(web.app.state.store, request["id"])
+
+    # Steps 8-10: the request's page has the invoice, and its PDF downloads.
+    status = web.get(f"{BL_STATUS}?bl_no={MBL}").text
+    assert 'id="bl-invoice"' in status
+    view = web.get(re.search(r'id="bl-request" href="([^"]+)"', status)[1]).text
+    assert re.search(r'id="invoice-no"[^>]*>INV-DEMO-\d+<', view)
+    assert re.search(r'id="invoice-amount"[^>]*>54720.68<', view) and re.search(r'id="invoice-status"[^>]*>OPEN<', view)
+    invoice = web.get(re.search(r'id="invoice-attachment"[^>]*href="([^"]+)"', view)[1])
+    assert invoice.headers["content-disposition"].startswith("attachment")
+    assert MBL in text_of(invoice.content) and "54,720.68" in text_of(invoice.content)
+
+
+def test_the_odex_pages_show_the_guides_screenshots_once_set_up(tmp_path):
+    screens = tmp_path / "screens"
+    screens.mkdir()
+    Image.new("RGB", (1430, 683), "white").save(screens / "service.png")
+    with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=screens)) as web:
+        log_in(web)
+        assert 'src="/odex/screens/service.png"' in web.get("/odex/home").text
+        assert web.get("/odex/screens/service.png").headers["content-type"] == "image/png"
+        # Without its screenshot a page shows a stand-in; its live parts still work.
+        dashboard = web.get("/odex/epayment").text
+        assert "isn't set up" in dashboard and 'id="edo-search"' in dashboard
+        assert web.get("/odex/screens/dashboard.png").status_code == 404
 
 
 def test_each_payment_is_confirmed_on_its_own_with_its_receipt(web):
@@ -252,13 +299,13 @@ def test_a_do_request_takes_the_folder_through_add_row(web):
 
 def test_autoplay_answers_each_request_once_it_has_waited(web):
     web.post("/control/autoplay", data={"on": "1", "delay_seconds": "5"})
-    web.post(f"{INVOICES}/new", data=INVOICE_FORM)
+    ask_invoice(web)
     web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"docFile1": pdf()})
     player = web.app.state.autoplay
     assert player.tick(datetime.now()) == []
     done = player.tick(datetime.now() + timedelta(seconds=6))
     assert len(done) == 2
-    assert items(web, "invoice_requests")[0]["status"] == "Invoice Verified"
+    assert items(web, "invoice_requests")[0]["status"] == "Released"
     assert items(web, "do_requests")[0]["status"] == "DO Issued"
 
     web.post("/control/autoplay", data={"on": "0", "delay_seconds": "5"})
@@ -267,7 +314,7 @@ def test_autoplay_answers_each_request_once_it_has_waited(web):
 
 
 def test_reset_empties_the_portals(web):
-    web.post(f"{INVOICES}/new", data=INVOICE_FORM)
+    ask_invoice(web)
     cma.verify_invoice(web.app.state.store, items(web, "invoice_requests")[0]["id"])
     web.post("/control/reset")
     assert items(web, "invoice_requests") == [] and items(web, "outbox") == []
@@ -275,7 +322,10 @@ def test_reset_empties_the_portals(web):
 
 
 def test_every_page_says_it_is_a_local_demo(web):
-    pages = ["/", "/control", INVOICES, f"{INVOICES}/new", DEPOSITS, f"{DEPOSITS}/new", DO_REQUESTS, f"{DO_REQUESTS}/new", RTGS]
+    pages = [
+        "/", "/control", "/odex/home", "/odex/epayment?location=NCR", INVOICES, f"{INVOICES}/new",
+        f"{BL_STATUS}?bl_no={MBL}", DEPOSITS, f"{DEPOSITS}/new", DO_REQUESTS, f"{DO_REQUESTS}/new", RTGS,
+    ]
     for path in pages:
         response = web.get(path)
         assert response.status_code == 200, path

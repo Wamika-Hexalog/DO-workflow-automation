@@ -19,6 +19,12 @@ def data_dir() -> Path:
     return Path(os.getenv("DO_DATA_DIR", str(BACKEND_DIR / "data"))) / "local_portals"
 
 
+def screens_dir() -> Path:
+    """The ODeX screenshots `make assets` takes from the team's guide."""
+    private = Path(os.getenv("DO_PRIVATE_DIR", str(Path(os.getenv("DO_ASSETS_DIR", str(BACKEND_DIR / "assets"))) / "private")))
+    return private / "odex"
+
+
 def odex_login() -> tuple[str, str]:
     """The local ODeX's username and password: the same variables its SOPs read."""
     return (
