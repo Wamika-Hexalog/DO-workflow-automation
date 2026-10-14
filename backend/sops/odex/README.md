@@ -27,13 +27,28 @@ with the **HBL number, not the MBL**, attach the folder PDF through *Add Row*, s
 `backend/.env`), used with `value_from: credentials.username_env`, as python-brain's
 ICEGATE SOP does.
 
-**Result**: finish with an `execute_script` step marked `extract_result: true` that
-returns `{"odex_request_ref": "<the reference ODeX shows>"}`. It goes into the job's
-history. A step that throws fails the run, and ops are told to check ODeX before
-approving again.
+**Result**: an `execute_script` step marked `extract_result: true` that returns
+`{"odex_request_ref": "<the reference ODeX shows>"}`. It goes into the job's history.
+A step that throws fails the run, and ops are told to check ODeX before approving again.
+
+**End**: the last step must be `- action: end`. Without it the agent repeats the last
+step until its iterations run out, which on ODeX could mean submitting again and
+again, so the app refuses such an SOP before opening a browser.
+
+**Waiting**: prefer `wait_for: domcontentloaded` on `goto` and wait for the element the
+next step needs. Waiting for `load` also waits on every slow third-party asset.
 
 The same steps against a mock page are in
 `tests/fixtures/mock_odex/sop_mock_odex_do_request.yaml`; `make test-browser` runs them.
+
+To try an SOP on its own while writing it, without the app or Inngest:
+
+    cd backend
+    uv run python scripts/run_sop.py sops/odex/sop_odex_do_request_new.yaml \
+        --param hbl_no=MSEC260803047251 --param folder_pdf_path=<a test PDF> --show
+
+`--show` opens the browser in slow motion. `sops/examples/` has a working example
+against a public practice site (`make try-agent SHOW=1`).
 
 ## To write it
 

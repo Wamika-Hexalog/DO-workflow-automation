@@ -497,8 +497,13 @@ class StagehandClient:
                 )
 
                 # Launch local Chrome browser
+                # do-workflow: slow motion on request, so people can watch a run.
+                from .._compat import browser_slow_mo_ms
+
                 self.browser = await self.playwright.chromium.launch(
-                    headless=self.headless, args=["--disable-blink-features=AutomationControlled"]
+                    headless=self.headless,
+                    args=["--disable-blink-features=AutomationControlled"],
+                    slow_mo=browser_slow_mo_ms(),
                 )
 
                 # Create context and page

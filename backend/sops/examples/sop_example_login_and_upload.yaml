@@ -1,0 +1,104 @@
+# A dummy SOP for checking the browser agent on a real website. It does what the
+# ODeX SOP will do (log in, upload a file, read back the confirmation) on
+# practice.expandtesting.com, a public site built for browser-automation practice.
+# The site prints its own test login on the login page; `make try-agent` passes it
+# in through the credentials block, the way the ODeX login will come from
+# backend/.env.
+#
+# Upload only harmless files here, such as dummy-upload.txt. Never a DO folder:
+# this is someone else's public server.
+metadata:
+  name: "Example - log in and upload (practice.expandtesting.com)"
+  version: "0.1"
+  retry_config:
+    max_retries: 1
+    retry_delay: 1.0
+
+credentials:
+  username_env: "EXAMPLE_SITE_USERNAME"
+  password_env: "EXAMPLE_SITE_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the login page
+    method: playwright
+    url: "https://practice.expandtesting.com/login"
+    # The HTML is enough: the next steps wait for the exact elements they need,
+    # and waiting for "load" would also wait on the site's ads.
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#submit-login"
+    wait_for: domcontentloaded
+
+  - action: wait_for_selector
+    description: Wait for the logged-in page (it has a logout link)
+    method: playwright
+    selector: "a[href='/logout']"
+
+  - action: execute_script
+    description: Read the logged-in page
+    method: playwright
+    extract_result: true
+    script: |
+      () => ({
+        logged_in_page: document.querySelector('h1').innerText.trim(),
+        login_message: (document.querySelector('#flash b')?.innerText || '').trim(),
+      })
+
+  - action: goto
+    description: Open the upload page
+    method: playwright
+    url: "https://practice.expandtesting.com/upload"
+    wait_for: domcontentloaded
+
+  - action: upload_file
+    description: Choose the file to upload
+    method: playwright
+    selector: "#fileInput"
+    file_path_from: params.file_path
+
+  - action: click
+    description: Upload it
+    method: playwright
+    selector: "#fileSubmit"
+    wait_for: domcontentloaded
+
+  - action: wait_for_selector
+    description: Wait for the site's confirmation
+    method: playwright
+    selector: "#uploaded-files"
+
+  - action: execute_script
+    description: Read the confirmation
+    method: playwright
+    extract_result: true
+    script: |
+      () => ({
+        upload_result: document.querySelector('h1').innerText.trim(),
+        uploaded_file: document.querySelector('#uploaded-files').innerText.trim(),
+      })
+
+  - action: wait
+    description: Leave the result on screen for a moment, for whoever is watching
+    method: playwright
+    duration: 2500
+
+  # Without an explicit end the agent repeats the last step until it runs out of
+  # iterations, as in python-brain. app/workflows/browser.py refuses SOPs without one.
+  - action: end
+    description: Done

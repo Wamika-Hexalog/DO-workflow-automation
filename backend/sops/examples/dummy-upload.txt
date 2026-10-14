@@ -1,0 +1,2 @@
+A harmless file the example SOP uploads to a public practice site.
+Nothing from a real shipment ever goes there.

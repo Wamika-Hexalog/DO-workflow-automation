@@ -222,3 +222,17 @@ def test_notices_never_hold_up_a_request(api, client):
     response = api.patch(f"/api/shipments/{s['id']}/values", json={"values": {"voyage": "X1"}})
     assert response.status_code == 200
     api_module.flush_notices()
+
+
+def test_an_sop_without_an_end_step_is_refused_before_a_browser_opens(app, tmp_path):
+    # Without `action: end` the agent repeats the last step until its iterations
+    # run out: on ODeX that last step could be the submit.
+    import asyncio
+
+    sop = tmp_path / "no_end.yaml"
+    sop.write_text(
+        "metadata: {name: No end}\nsteps:\n  - {action: click, method: playwright, selector: '#submit'}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(inngest.NonRetriableError, match="must finish with an `action: end` step"):
+        asyncio.run(browser.run_sop(app.state.rt, str(sop), {}, "test"))

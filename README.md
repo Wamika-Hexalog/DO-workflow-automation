@@ -19,7 +19,11 @@ make dev           # API on :8000, UI with hot reload on :5173, Inngest dev serv
 make demo          # builds the UI; serves it with the API on :8000, plus the Inngest dev server
 make test          # backend tests (the workflows run in process; no dev server needed)
 make test-browser  # the browser agent in a real Chromium, against a mock ODeX page
+make try-agent     # the browser agent logs in and uploads a dummy file on a public practice site; SHOW=1 to watch
+make demo-agent    # the app, with the agent raising DO requests on the mock ODeX page in a browser you can watch
 ```
+
+To see the browser agent at work: `make demo-agent`, open a job whose documents are all in, review and build its folder, then click **Approve and raise it on ODeX**. A browser opens and fills in the mock ODeX page in slow motion. Everything stays on the machine.
 
 The Inngest dev server's dashboard, at http://localhost:8288, shows every workflow run and its steps. Secrets (the browser agent's `GOOGLE_API_KEY`, the ODeX login) go in `backend/.env`; see `backend/.env.example`.
 

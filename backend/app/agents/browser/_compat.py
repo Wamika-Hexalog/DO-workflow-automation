@@ -1,12 +1,14 @@
 """Where python-brain's browser agent reached into the rest of python-brain.
 
 Everything under app/agents/browser is python-brain's src/agents/browser at
-commit 232f3b0, changed only in three places so it can be re-synced:
+commit 232f3b0, changed only in these places so it can be re-synced:
 
 * the copied files import the names below instead of ``shared.*``;
 * repository.py keeps the run log in this app's SQLite database, not MongoDB;
 * core/agent.py takes that repository as an argument, uses this app's string
-  shipment ids instead of Mongo ObjectIds, and records the task key on the run.
+  shipment ids instead of Mongo ObjectIds, and records the task key on the run;
+* integrations/stagehand_client.py passes browser_slow_mo_ms() to the local
+  browser launch, so people can watch a run.
 """
 from __future__ import annotations
 
@@ -56,6 +58,12 @@ class EngineSettings:
 settings = EngineSettings.from_env()
 
 
+def browser_slow_mo_ms() -> float:
+    """BROWSER_SLOW_MO_MS pauses before every browser action, so a person can follow
+    along. Read at launch time, so a script can set it just before a run."""
+    return _number("BROWSER_SLOW_MO_MS", 0.0, 0.0, 5000.0)
+
+
 def is_initialised() -> bool:
     """python-brain checked MongoDB here. The run log is SQLite, handed to the
     agent through BrowserRepository, so there is nothing to set up first."""
@@ -77,4 +85,11 @@ async def send_tech_alert(payload: dict[str, Any]) -> None:
     logger.warning("browser.tech_alert", **{f"alert_{key}": str(value) for key, value in payload.items()})
 
 
-__all__ = ["get_shipment_repository", "is_initialised", "redact_text", "send_tech_alert", "settings"]
+__all__ = [
+    "browser_slow_mo_ms",
+    "get_shipment_repository",
+    "is_initialised",
+    "redact_text",
+    "send_tech_alert",
+    "settings",
+]

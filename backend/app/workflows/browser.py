@@ -37,6 +37,15 @@ async def run_sop(
 
     if not Path(sop_path).is_file():
         raise inngest.NonRetriableError(f"No SOP at {sop_path} for {job_label}.")
+    # The agent only stops early at an `action: end` step; without one it repeats
+    # the last step until its iterations run out. On a step that submits, such as
+    # ODeX's DO request, that would mean submitting again and again.
+    check = SOPReader(sop_path)
+    steps = check.get_steps() if check.read_sop() else []
+    if not steps or steps[-1].get("action") != "end":
+        raise inngest.NonRetriableError(
+            f"{Path(sop_path).name} must finish with an `action: end` step, or the agent repeats its last step."
+        )
 
     agent = None
     try:
