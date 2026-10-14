@@ -18,8 +18,10 @@ make assets        # transparent stamps, bonds and letterheads from Docs/
 make dev           # API on :8000, UI with hot reload on :5173, Inngest dev server on :8288
 make demo          # builds the UI; serves it with the API on :8000, plus the Inngest dev server
 make test          # backend tests (the workflows run in process; no dev server needed)
-make test-browser  # the browser agent in a real Chromium, against a mock ODeX page
+make test-browser  # the browser agent in a real Chromium: a mock ODeX page, and the whole process on the local portals
 make try-agent     # the browser agent logs in and uploads a dummy file on a public practice site; SHOW=1 to watch
+make portals       # local versions of ODeX and CMA CGM's RTGS page, on :8100 (see below)
+make demo-local    # make demo plus the local portals: approving a DO request raises it on the local ODeX, visibly
 ```
 
 The Inngest dev server's dashboard, at http://localhost:8288, shows every workflow run and its steps. Secrets (the browser agent's `GOOGLE_API_KEY`, the ODeX login) go in `backend/.env`; see `backend/.env.example`.
@@ -66,14 +68,29 @@ The process runs as small Inngest functions, each triggered by an event, in pyth
 
 Ops act through tasks: building the folder completes the review, and approving the DO request starts the ODeX run. Each request takes an insert-once claim per house bill, so a replayed or repeated run never raises it twice. A browser run that fails isn't retried blindly: the error goes on the task, with the house bills to check on ODeX before approving again.
 
-Until the ODeX SOP is written, the DO request is raised by hand and approving it records that it's done. `backend/sops/odex/README.md` says what the SOP needs; once the file is there, approving runs the browser agent instead.
+Until the ODeX SOP is written, the DO request is raised by hand and approving it records that it's done. `backend/sops/odex/README.md` says what the SOP needs; once the file is there, approving runs the browser agent instead. Pointing `DO_ODEX_SOP` at the local ODeX's SOP (`make demo-local` does) shows the whole run on this machine.
 
 Uploads and edits tell the engine in the background, so a stopped engine never slows the app. Building and approving need it: if it isn't running they say so, and nothing is left half-started.
+
+## Local portals
+
+The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
+
+- **ODeX** (`/odex`), with the three pages the process uses, under their real menus: Request New Invoice, New Deposit (with its slip once approved) and New DO Request (with its eDO once issued).
+- **CMA CGM RTGS** (`/cma-rtgs`), where the invoice and deposit payments are entered against the B/L.
+- **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
+
+Every page and document says it's a local demo. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
+
+`backend/sops/local` has an SOP for each of the six steps, filled from the database by `app/portal_params.py`. Its README maps every page field to the field it comes from, and lists what's still needed to move to the real sites. Run a step for a job with `make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1`.
+
+The browser agent can only open this machine unless `DO_BROWSER_ALLOWED_HOSTS` allows more, so a demo can't reach a real site, even by mistake.
 
 ## Changing the folder
 
 - `backend/do_folder.yaml` defines the documents, their order and sources, where stamps go on uploads, and the fields. The forms follow automatically. If the file has a mistake, the API refuses to start and says what it is.
-- The five letters are drawn in `backend/app/letters.py`, following the team's Word originals. Wording changes go there.
+- The five letters are drawn in `backend/app/letters.py`, following the team's Word originals. Wording changes go there. So is the NOC for refunding the deposit to the CHA, which goes with the deposit on ODeX rather than in the folder.
+- A field added to `do_folder.yaml` with a default starts at that default in the fixed details and in existing jobs, without making built folders out of date.
 - Stamp positions on uploads are fractions of the page: `x` and `y` of the stamp's centre from the bottom-left corner, and its `width`.
 
 ## Private assets
@@ -109,4 +126,6 @@ Slots are named by document key, plus the house bill for per-HBL documents: `mbl
 
 Optional environment variables: `DO_DATA_DIR`, `DO_DATABASE_URL`, `DO_FOLDER_PATH`, `DO_ASSETS_DIR`, `DO_PRIVATE_DIR`, `DO_STORAGE_DIR`, `DO_DEMO_DOCS_DIR`, `DO_JOB_PREFIX` (default `HXL/IMP`), and `DO_SEED_DEMO_DATA=0` to start without demo data.
 
-Workflows and the browser agent: `INNGEST_DEV` (default on; set `0` in production with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`), `INNGEST_SERVE_ORIGIN`, `DO_ODEX_SOP` (default `backend/sops/odex/sop_odex_do_request_new.yaml`), `DO_BROWSER_HEADLESS=0` to watch the browser, `GOOGLE_API_KEY`, and python-brain's `SOP_TIMEOUT_SCALE`, `BROWSER_TEARDOWN_TIMEOUT_S` and `BROWSER_SOP_MAX_SECONDS`. They can all go in `backend/.env`.
+Workflows and the browser agent: `INNGEST_DEV` (default on; set `0` in production with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`), `INNGEST_SERVE_ORIGIN`, `DO_ODEX_SOP` (default `backend/sops/odex/sop_odex_do_request_new.yaml`), `DO_BROWSER_HEADLESS=0` to watch the browser, `BROWSER_SLOW_MO_MS` to slow it down, `GOOGLE_API_KEY` (only for SOPs with steps that ask the model), and python-brain's `SOP_TIMEOUT_SCALE`, `BROWSER_TEARDOWN_TIMEOUT_S` and `BROWSER_SOP_MAX_SECONDS`. They can all go in `backend/.env`.
+
+The portals: `DO_ODEX_URL` and `DO_CMA_RTGS_URL` (default: the local ones on :8100), `DO_BROWSER_ALLOWED_HOSTS` (comma-separated hosts the agent may open; default `127.0.0.1,localhost`; `*` for any), and for the local ODeX `LOCAL_ODEX_USERNAME`, `LOCAL_ODEX_PASSWORD` and `LOCAL_ODEX_ACCOUNT`.

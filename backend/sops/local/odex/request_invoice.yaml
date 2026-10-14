@@ -1,0 +1,147 @@
+# Request the DO invoice on ODeX: Request → Liner Request → Request New Invoice.
+# The first step of the DO process, once CMA CGM has filed the IGM. Runs once per MBL.
+#
+# Written for the local ODeX (make portals). The real page's selectors aren't known
+# yet; sops/local/README.md says what's needed to point it at the real one.
+#
+# Params, built by app/portal_params.py (step odex_request_invoice):
+#   odex_url     where ODeX is: DO_ODEX_URL, the local one by default
+#   liner        fixed details: Liner on ODeX
+#   mbl_no       job: Master B/L no. (CMA CGM invoices the master bill)
+#   containers   job: Container nos., comma separated
+#   email        fixed details: Mailbox for CMA CGM's emails (the invoice comes here)
+#   job_no       the job number, entered as the remark
+#
+# Reads back: odex_invoice_request_ref
+metadata:
+  name: "Local ODeX - Request New Invoice"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the menus, which only show once logged in
+    method: playwright
+    selector: "#menu"
+
+  - action: click
+    description: Open the Request menu
+    method: playwright
+    selector: "#menu-request"
+
+  - action: click
+    description: Go to Liner Request
+    method: playwright
+    selector: "#nav-liner-request"
+
+  - action: wait_for_selector
+    description: Wait for the Liner Request page
+    method: playwright
+    selector: "#new-invoice"
+
+  - action: click
+    description: Request New Invoice
+    method: playwright
+    selector: "#new-invoice"
+
+  - action: wait_for_selector
+    description: Wait for the invoice request form
+    method: playwright
+    selector: "#invoice-form"
+
+  - action: execute_script
+    description: Choose the liner and the Delivery Order invoice
+    method: playwright
+    script_args:
+      liner: params.liner
+      invoice_type: "Delivery Order"
+    script: |
+      ({ liner, invoice_type }) => {
+        const choose = (selector, wanted) => {
+          const select = document.querySelector(selector);
+          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        choose('#liner', liner);
+        choose('#invoiceType', invoice_type);
+      }
+
+  - action: fill
+    description: Enter the master B/L number
+    method: playwright
+    selector: "#blNo"
+    value_from: params.mbl_no
+
+  - action: fill
+    description: Enter the container numbers
+    method: playwright
+    selector: "#containers"
+    value_from: params.containers
+
+  - action: fill
+    description: Enter the mailbox the invoice goes to
+    method: playwright
+    selector: "#email"
+    value_from: params.email
+
+  - action: fill
+    description: Enter the job number as the remark
+    method: playwright
+    selector: "#remarks"
+    value_from: params.job_no
+
+  # The submit and the check are separate steps: the agent retries a failed step,
+  # and only the check is safe to repeat.
+  - action: click
+    description: Submit the invoice request
+    method: playwright
+    selector: "#submit"
+
+  - action: wait_for_selector
+    description: Wait for ODeX's answer
+    method: playwright
+    selector: "#outcome"
+
+  - action: execute_script
+    description: Read the request number ODeX gave
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const outcome = document.querySelector('#outcome');
+        if (outcome.dataset.status !== 'accepted') {
+          throw new Error(`ODeX turned the invoice request down: ${outcome.dataset.message}`);
+        }
+        return { odex_invoice_request_ref: outcome.dataset.reference };
+      }
+
+  - action: end
+    description: Done

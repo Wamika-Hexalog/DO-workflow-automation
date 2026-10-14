@@ -227,14 +227,8 @@ def do_request_plan_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
         pdf = assemble.shipment_dir(rt.settings, shipment.id) / "builds" / shipment.folder_file
         if not pdf.is_file():
             raise NotReady("The built folder PDF is missing. Build the folder again.")
-        return {
-            "automated": rt.settings.odex_automated,
-            "sop": str(rt.settings.odex_sop_path),
-            "job_no": shipment.job_no,
-            "mbl_no": shipment.data.get("mbl_no") or "",
-            "hbls": hbls,
-            "folder_pdf": str(pdf),
-        }
+        # The SOP's params come from portal_params, in their own step.
+        return {"automated": rt.settings.odex_automated, "sop": str(rt.settings.odex_sop_path), "hbls": hbls}
 
 
 def record_do_request_job(rt: Runtime, shipment_id: str, results: dict[str, dict[str, Any]], by: str) -> dict[str, Any]:

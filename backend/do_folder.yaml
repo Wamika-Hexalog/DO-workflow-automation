@@ -1,6 +1,8 @@
 # The DO folder: the documents CMA CGM needs for a delivery order, in the order
 # they go into the combined PDF, and the fields the generated letters print.
 # Source: "DO PROCESS FLOW E2E.xlsx", sheet "DO Folder Document Collection".
+# It also holds the fields the portals are filled with (ODeX, CMA RTGS): see
+# app/portal_params.py for which page uses which.
 #
 # The UI is built from this file. If it has a mistake, the API refuses to start
 # and says what it is.
@@ -28,6 +30,10 @@ profile_fields:
     label: Line agent address
     type: textarea
     default: "A-32, Genesis Building, Ground floor, Mohan Coop Industrial Estate, Mathura Road, New Delhi – 110044"
+  - { key: odex_liner, label: Liner on ODeX, default: CMA CGM }
+  - { key: payer_bank, label: Bank that pays CMA CGM, default: ICICI BANK }
+  # Where CMA CGM's emails go: the mailbox the Graph subscription watches.
+  - { key: do_mailbox, label: Mailbox for CMA CGM's emails, optional: true }
 
 # Entered once per shipment (one MBL) and printed by the letters that use them.
 shipment_groups:
@@ -61,6 +67,26 @@ shipment_groups:
       - { key: hss_documents, label: HSS documents and LOI, type: checkbox, optional: true }
       - { key: payment_mode, label: Mode of payment, type: select, options: [Online Payment, DD/PAYORDER, CHEQUE], default: Online Payment }
       - { key: do_type, label: D/O or E-DO, type: select, options: [D/O, E-DO], default: E-DO }
+
+  # Filled as the process goes: today by hand, later from CMA CGM's and Finance's
+  # emails by the Graph ingest.
+  - title: Liner invoice
+    fields:
+      - { key: do_invoice_no, label: DO invoice no., code: true, optional: true }
+      - { key: do_invoice_amount, label: DO invoice amount (₹), type: number, optional: true }
+
+  - title: Payment and deposit
+    fields:
+      - { key: deposit_amount, label: Security deposit (₹), type: number, optional: true, default: "40000" }
+      - { key: payment_utr, label: UTR for the invoice, code: true, optional: true }
+      - { key: deposit_utr, label: UTR for the deposit, code: true, optional: true }
+      - { key: payment_date, label: Payment date, type: date, optional: true }
+      - key: deposit_refund_to
+        label: Deposit refunded to
+        type: select
+        options: [Third Party, Consignee]
+        default: Third Party
+        optional: true
 
 # Stamp artwork, in assets/private/stamps/ (run scripts/prepare_assets.py).
 stamps:

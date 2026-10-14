@@ -7,12 +7,76 @@ caller can link to the run log.
 """
 from __future__ import annotations
 
+import logging
+import os
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import inngest
 
 from ..runtime import Runtime
+
+logger = logging.getLogger(__name__)
+
+# Pages the browser makes for itself, or reads from this machine's disk.
+_LOCAL_SCHEMES = {"file", "data", "blob", "about", "chrome", "chrome-error"}
+
+
+def host_allowed(url: str, allowed: tuple[str, ...]) -> bool:
+    parts = urlsplit(url)
+    if parts.scheme in _LOCAL_SCHEMES:
+        return True
+    host = (parts.hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in allowed)
+
+
+async def guard_hosts(context: Any, allowed: tuple[str, ...], blocked: list[str]) -> None:
+    """Blocks every request to a host that isn't allowed, so the agent can't reach
+    a real site unless the settings say it may (DO_BROWSER_ALLOWED_HOSTS)."""
+
+    async def route(request_route: Any) -> None:
+        url = request_route.request.url
+        if host_allowed(url, allowed):
+            await request_route.continue_()
+            return
+        if request_route.request.is_navigation_request():
+            blocked.append(urlsplit(url).hostname or url)
+        logger.warning("Blocked a request to %s: not in DO_BROWSER_ALLOWED_HOSTS", urlsplit(url).hostname)
+        await request_route.abort("blockedbyclient")
+
+    await context.route("**/*", route)
+
+
+@contextmanager
+def _model_key_for(steps: list[dict[str, Any]]) -> Iterator[None]:
+    """python-brain's agent won't start without GOOGLE_API_KEY, even for an SOP whose
+    steps are all scripted Playwright steps that never ask the model anything. For
+    such an SOP a placeholder stands in while the agent starts, then goes again."""
+    scripted = all(step.get("method") == "playwright" or step.get("action") == "end" for step in steps)
+    if os.getenv("GOOGLE_API_KEY") or not scripted:
+        yield
+        return
+    os.environ["GOOGLE_API_KEY"] = "not-used-by-playwright-steps"
+    try:
+        yield
+    finally:
+        os.environ.pop("GOOGLE_API_KEY", None)
+
+
+def step_error(result: dict[str, Any]) -> str | None:
+    """What the failing step said, such as a portal's own rejection message. The
+    agent's summary ("Step failed 3 consecutive times: ...") leaves it out."""
+    for message in reversed(result.get("messages") or []):
+        step = message.get("result") if isinstance(message, dict) else None
+        if isinstance(step, dict) and step.get("status") == "error" and step.get("message"):
+            # Playwright puts its call and the JS error's type first: "Page.evaluate: Error: ...".
+            first_line = str(step["message"]).strip().splitlines()[0]
+            return re.sub(r"^(?:\w+\.\w+: )?(?:Error: )?", "", first_line).strip()
+    return None
 
 
 async def run_sop(
@@ -48,16 +112,21 @@ async def run_sop(
         )
 
     agent = None
+    blocked: list[str] = []
+    allowed = rt.settings.browser_allowed_hosts
     try:
         try:
             # Constructor included: it validates env config, and a raise here is a
             # browser-init problem, not something a step retry would fix.
-            agent = LangGraphReactAgent(
-                headless=rt.settings.browser_headless,
-                max_iterations=max_iterations,
-                repository=BrowserRepository(rt.sessionmaker),
-            )
-            await agent.start()
+            with _model_key_for(steps):
+                agent = LangGraphReactAgent(
+                    headless=rt.settings.browser_headless,
+                    max_iterations=max_iterations,
+                    repository=BrowserRepository(rt.sessionmaker),
+                )
+                await agent.start()
+            if allowed is not None:
+                await guard_hosts(agent.stagehand_client.context, allowed, blocked)
         except Exception as e:
             raise inngest.NonRetriableError(f"Browser init failed for {job_label}: {e}") from None
 
@@ -89,7 +158,15 @@ async def run_sop(
             pass
 
     if result.get("status") != "completed":
-        raise inngest.NonRetriableError(f"SOP did not complete for {job_label}: {result.get('error')}")
+        if blocked:
+            raise inngest.NonRetriableError(
+                f"SOP did not complete for {job_label}: it tried to open {', '.join(sorted(set(blocked)))}, "
+                f"which isn't allowed. Allowed hosts: {', '.join(allowed or ())} (DO_BROWSER_ALLOWED_HOSTS)."
+            )
+        failure = result.get("error") or "the agent stopped without saying why"
+        if said := step_error(result):
+            raise inngest.NonRetriableError(f"SOP did not complete for {job_label}: {said} ({failure})")
+        raise inngest.NonRetriableError(f"SOP did not complete for {job_label}: {failure}")
 
     # Only JSON-serializable fields: final_state and messages hold LangGraph objects.
     return {

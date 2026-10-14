@@ -1,0 +1,179 @@
+# Raise the DO request on ODeX: e-Payment → DO Request → New DO Request, with
+# the house B/L number (not the MBL) and the DO folder PDF attached through Add Row.
+# Runs once per house bill, each time with the same folder PDF of the MBL.
+#
+# Written for the local ODeX (make portals). With DO_ODEX_SOP pointing here, the
+# app's do-request-submit workflow runs it when ops approve the DO request
+# (make demo-local). The real page's selectors aren't known yet;
+# sops/local/README.md says what's needed to point it at the real one.
+#
+# Params, built by app/portal_params.py (step odex_do_request_new):
+#   odex_url         where ODeX is: DO_ODEX_URL, the local one by default
+#   liner            fixed details: Liner on ODeX
+#   hbl_no           the house B/L this request is for
+#   mbl_no           job: Master B/L no.
+#   job_no           the job number, entered as the remark
+#   do_type          job: D/O or E-DO
+#   delivery_type    job: Delivery type
+#   containers       job: Container nos., comma separated
+#   folder_pdf_path  the built DO folder, which must be up to date
+#
+# Reads back: odex_request_ref (the app logs it on the job), odex_confirmation
+metadata:
+  name: "Local ODeX - New DO Request"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the menus, which only show once logged in
+    method: playwright
+    selector: "#menu"
+
+  - action: click
+    description: Open the e-Payment menu
+    method: playwright
+    selector: "#menu-e-payment"
+
+  - action: click
+    description: Go to DO Request
+    method: playwright
+    selector: "#nav-do-request"
+
+  - action: wait_for_selector
+    description: Wait for the DO Request page
+    method: playwright
+    selector: "#new-do-request"
+
+  - action: click
+    description: New DO Request
+    method: playwright
+    selector: "#new-do-request"
+
+  - action: wait_for_selector
+    description: Wait for the DO request form
+    method: playwright
+    selector: "#do-request-form"
+
+  - action: execute_script
+    description: Choose the liner, the DO type and the delivery type
+    method: playwright
+    script_args:
+      liner: params.liner
+      do_type: params.do_type
+      delivery_type: params.delivery_type
+    script: |
+      ({ liner, do_type, delivery_type }) => {
+        const choose = (selector, wanted) => {
+          const select = document.querySelector(selector);
+          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        choose('#liner', liner);
+        choose('#doType', do_type);
+        choose('#deliveryType', delivery_type);
+      }
+
+  - action: fill
+    description: Enter the house B/L number (ODeX wants the HBL, not the MBL)
+    method: playwright
+    selector: "#blNo"
+    value_from: params.hbl_no
+
+  - action: fill
+    description: Enter the container numbers
+    method: playwright
+    selector: "#containers"
+    value_from: params.containers
+
+  - action: fill
+    description: Enter the job number as the remark
+    method: playwright
+    selector: "#remarks"
+    value_from: params.job_no
+
+  - action: click
+    description: Add Row, for the DO folder
+    method: playwright
+    selector: "#addRow"
+
+  - action: wait_for_selector
+    description: Wait for the new row
+    method: playwright
+    selector: "#docRows tr[data-row='1']"
+
+  - action: execute_script
+    description: Mark the row as the DO folder
+    method: playwright
+    script_args:
+      doc_type: "DO folder (combined PDF)"
+    script: |
+      ({ doc_type }) => {
+        const select = document.querySelector("#docRows tr[data-row='1'] select.doc-type");
+        const option = [...select.options].find((o) => o.value === doc_type || o.text.trim() === doc_type);
+        if (!option) throw new Error(`ODeX has no document type "${doc_type}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: upload_file
+    description: Attach the DO folder PDF
+    method: playwright
+    selector: "#docRows tr[data-row='1'] input.doc-file"
+    file_path_from: params.folder_pdf_path
+
+  # The submit and the check are separate steps: the agent retries a failed step,
+  # and only the check is safe to repeat.
+  - action: click
+    description: Submit the DO request
+    method: playwright
+    selector: "#submit"
+
+  - action: wait_for_selector
+    description: Wait for ODeX's answer
+    method: playwright
+    selector: "#outcome"
+
+  - action: execute_script
+    description: Read the request number ODeX gave
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const outcome = document.querySelector('#outcome');
+        if (outcome.dataset.status !== 'accepted') {
+          throw new Error(`ODeX turned the DO request down: ${outcome.dataset.message}`);
+        }
+        return { odex_request_ref: outcome.dataset.reference, odex_confirmation: outcome.dataset.message };
+      }
+
+  - action: end
+    description: Done

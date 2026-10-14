@@ -14,7 +14,7 @@ Runs once per house bill, after ops approve the "Raise the DO request on ODeX" t
 The SOP sheet's path: ODeX → e-Payment → DO Request → New DO Request, fill the fields
 with the **HBL number, not the MBL**, attach the folder PDF through *Add Row*, save.
 
-**Parameters** the workflow passes, read as `params.<name>`:
+**Parameters** the workflow passes, read as `params.<name>` (built by `app/portal_params.py`):
 
 | Name | What it is |
 |---|---|
@@ -22,6 +22,8 @@ with the **HBL number, not the MBL**, attach the folder PDF through *Add Row*, s
 | `mbl_no` | The master bill |
 | `job_no` | The Hexalog job number |
 | `folder_pdf_path` | The built DO folder PDF. One per MBL, uploaded for every house bill |
+| `liner`, `do_type`, `delivery_type`, `containers` | From the fixed details and the job |
+| `odex_url` | Where ODeX is (`DO_ODEX_URL`) |
 
 **Login**: a `credentials` block naming `ODEX_USERNAME` and `ODEX_PASSWORD` (set in
 `backend/.env`), used with `value_from: credentials.username_env`, as python-brain's
@@ -38,8 +40,10 @@ again, so the app refuses such an SOP before opening a browser.
 **Waiting**: prefer `wait_for: domcontentloaded` on `goto` and wait for the element the
 next step needs. Waiting for `load` also waits on every slow third-party asset.
 
-The same steps against a mock page are in
-`tests/fixtures/mock_odex/sop_mock_odex_do_request.yaml`; `make test-browser` runs them.
+`sops/local/odex/do_request_new.yaml` does all of this on the local ODeX (`make portals`),
+with the params `app/portal_params.py` builds from the job. It's the starting point:
+copy it here, swap in the real page's selectors and the real login, and allow ODeX's host
+in `DO_BROWSER_ALLOWED_HOSTS`. `sops/local/README.md` lists what's still needed.
 
 To try an SOP on its own while writing it, without the app or Inngest:
 

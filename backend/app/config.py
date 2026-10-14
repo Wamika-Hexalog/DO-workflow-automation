@@ -16,6 +16,26 @@ def _flag(name: str, default: bool) -> bool:
     return default if value is None else value.strip().lower() not in ("0", "false", "no", "")
 
 
+# Where the browser agent may go unless told otherwise: this machine only, which
+# is where the local versions of ODeX and the CMA RTGS site run.
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+
+# The local ODeX's login (make portals). Not a secret: that portal runs only on
+# this machine. Its SOPs read it from these variables, as the real ones will read
+# ODEX_USERNAME and ODEX_PASSWORD.
+LOCAL_ODEX_LOGIN = {"LOCAL_ODEX_USERNAME": "hexalog-demo", "LOCAL_ODEX_PASSWORD": "local-demo-only"}
+
+
+def _hosts(name: str) -> tuple[str, ...] | None:
+    """A comma-separated host list. "*" lifts the restriction."""
+    value = os.getenv(name)
+    if value is None:
+        return LOCAL_HOSTS
+    if value.strip() == "*":
+        return None
+    return tuple(h.strip().lower() for h in value.split(",") if h.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -39,6 +59,11 @@ class Settings:
     # and ops confirm it in the app.
     odex_sop_path: Path = BACKEND_DIR / "sops" / "odex" / "sop_odex_do_request_new.yaml"
     browser_headless: bool = True
+    # Hosts the agent may open; anything else is blocked. None: no restriction.
+    browser_allowed_hosts: tuple[str, ...] | None = LOCAL_HOSTS
+    # The portals the SOPs open. The defaults are the local versions (make portals).
+    odex_url: str = "http://127.0.0.1:8100/odex"
+    cma_rtgs_url: str = "http://127.0.0.1:8100/cma-rtgs"
 
     @property
     def odex_automated(self) -> bool:
@@ -49,6 +74,8 @@ class Settings:
         # Secrets such as GOOGLE_API_KEY and the ODeX login live in backend/.env
         # (see .env.example). Variables already set in the environment win.
         load_dotenv(BACKEND_DIR / ".env", override=False)
+        for name, value in LOCAL_ODEX_LOGIN.items():
+            os.environ.setdefault(name, value)
         data_dir = Path(os.getenv("DO_DATA_DIR", str(BACKEND_DIR / "data")))
         assets_dir = Path(os.getenv("DO_ASSETS_DIR", str(BACKEND_DIR / "assets")))
         default_sop = cls.__dataclass_fields__["odex_sop_path"].default
@@ -68,4 +95,7 @@ class Settings:
             inngest_serve_origin=os.getenv("INNGEST_SERVE_ORIGIN") or None,
             odex_sop_path=Path(os.getenv("DO_ODEX_SOP", str(default_sop))),
             browser_headless=_flag("DO_BROWSER_HEADLESS", True),
+            browser_allowed_hosts=_hosts("DO_BROWSER_ALLOWED_HOSTS"),
+            odex_url=os.getenv("DO_ODEX_URL", cls.odex_url).rstrip("/"),
+            cma_rtgs_url=os.getenv("DO_CMA_RTGS_URL", cls.cma_rtgs_url).rstrip("/"),
         )

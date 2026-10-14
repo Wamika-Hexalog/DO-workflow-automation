@@ -59,6 +59,21 @@ def _lines(*lines: str, style: ParagraphStyle = BODY) -> Paragraph:
     return Paragraph("<br/>".join(lines), style)
 
 
+def _indian_amount(value: str) -> str:
+    """40000 → 40,000 and 254720.5 → 2,54,720.50, the way Indian letters write rupees."""
+    try:
+        whole, paise = divmod(round(float(value) * 100), 100)
+    except (TypeError, ValueError):
+        return value
+    head, tail = str(whole)[:-3], str(whole)[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    text = ",".join(([head] if head else []) + groups + [tail])
+    return f"{text}.{paise:02d}" if paise else text
+
+
 def _image(path: Path) -> ImageReader:
     if not path.is_file():
         raise MissingAsset(f"{path} is missing. Run `make assets` to build it from the Docs folder.")
@@ -258,6 +273,46 @@ def authorization(data: LetterInput) -> bytes:
         ),
         Spacer(0, 14 * mm),
         *_hexalog_signature(data),
+    ]
+    return _build(story, _hexalog_page)
+
+
+def noc_refund(data: LetterInput) -> bytes:
+    """Hexalog's no-objection to CMA CGM refunding the security deposit to the CHA.
+    Not part of the DO folder: it goes with the deposit on ODeX when the refund is
+    to a third party. After the team's "NOC (5).docx"."""
+    v = data.printed
+    signature = _lines(
+        f"For {_e(v['forwarder_name'])}",
+        "<br/><br/>Authorised Signatory",
+        f"{_e(v['forwarder_signatory'])} ({_e(v['forwarder_designation'])})",
+    )
+    story = [
+        _p("<b><u>NO OBJECTION</u></b>", CENTRE),
+        Spacer(0, 6 * mm),
+        _lines(f"Date: {_e(v['letter_date'])}", "Letter No:"),
+        Spacer(0, 5 * mm),
+        _lines("The Import Manager,", f"{_e(v['line_agent'])}, Mumbai"),
+        Spacer(0, 5 * mm),
+        _p("<b>REFERENCE</b>"),
+        _lines(
+            f"B/L Number: {_e(v['mbl_no'])}",
+            f"Vessel: {_e(v['vessel'])}",
+            "IGM/Item No:",
+            f"Container No: {_e(v['containers'])}",
+        ),
+        Spacer(0, 5 * mm),
+        _p(
+            f"We hereby declare our No Objection to you in refunding excess payment of "
+            f"Rs.{_e(_indian_amount(v['deposit_amount']))}/- made by us and due to us in favour of "
+            f"M/s {_e(v['cha'])}. You will be discharged of your liability to us upon such payment.",
+            JUSTIFIED,
+        ),
+        Spacer(0, 4 * mm),
+        _p(f"Our Permanent Account Number is {_e(v['forwarder_pan'])}"),
+        Spacer(0, 10 * mm),
+        # Right of the signature, clear of the "For ..." line.
+        KeepTogether([signature, *_stamp(data, 100 * mm, 8 * mm)]),
     ]
     return _build(story, _hexalog_page)
 

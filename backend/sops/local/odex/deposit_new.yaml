@@ -1,0 +1,182 @@
+# Register the security deposit on ODeX: Counter Process → Deposit and Refund →
+# New Deposit. Runs once per house bill: ODeX takes a deposit per B/L.
+#
+# Written for the local ODeX (make portals). The real page's selectors aren't known
+# yet; sops/local/README.md says what's needed to point it at the real one.
+#
+# Params, built by app/portal_params.py (step odex_deposit_new):
+#   odex_url          where ODeX is: DO_ODEX_URL, the local one by default
+#   liner             fixed details: Liner on ODeX
+#   hbl_no            the house B/L this deposit is for
+#   amount            job: Security deposit
+#   utr               job: UTR for the deposit
+#   payment_date      job: Payment date, YYYY-MM-DD
+#   bank_name         fixed details: Bank that pays CMA CGM
+#   refund_to         job: Deposit refunded to ("Third Party" or "Consignee")
+#   third_party_name  job: CHA, for a refund to a third party; empty otherwise
+#   noc_file          the NOC for the refund (app/letters.py noc_refund), for a refund
+#                     to a third party; empty otherwise
+#   receipt_file      the Security Receipt in the DO folder
+#
+# Reads back: odex_deposit_ref
+metadata:
+  name: "Local ODeX - New Deposit"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the menus, which only show once logged in
+    method: playwright
+    selector: "#menu"
+
+  - action: click
+    description: Open the Counter Process menu
+    method: playwright
+    selector: "#menu-counter-process"
+
+  - action: click
+    description: Go to Deposit and Refund
+    method: playwright
+    selector: "#nav-deposit-refund"
+
+  - action: wait_for_selector
+    description: Wait for the Deposit and Refund page
+    method: playwright
+    selector: "#new-deposit"
+
+  - action: click
+    description: New Deposit
+    method: playwright
+    selector: "#new-deposit"
+
+  - action: wait_for_selector
+    description: Wait for the deposit form
+    method: playwright
+    selector: "#deposit-form"
+
+  # Who the refund goes to first: choosing Third Party shows the fields for it.
+  - action: execute_script
+    description: Choose the liner, the payment mode and who the refund goes to
+    method: playwright
+    script_args:
+      liner: params.liner
+      payment_mode: "RTGS/NEFT"
+      refund_to: params.refund_to
+    script: |
+      ({ liner, payment_mode, refund_to }) => {
+        const choose = (selector, wanted) => {
+          const select = document.querySelector(selector);
+          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        choose('#liner', liner);
+        choose('#paymentMode', payment_mode);
+        choose('#refundTo', refund_to);
+      }
+
+  - action: fill
+    description: Enter the house B/L number
+    method: playwright
+    selector: "#blNo"
+    value_from: params.hbl_no
+
+  - action: fill
+    description: Enter the deposit amount
+    method: playwright
+    selector: "#amount"
+    value_from: params.amount
+
+  - action: fill
+    description: Enter the UTR of the deposit payment
+    method: playwright
+    selector: "#utrNo"
+    value_from: params.utr
+
+  - action: fill
+    description: Enter the payment date
+    method: playwright
+    selector: "#paymentDate"
+    value_from: params.payment_date
+
+  - action: fill
+    description: Enter the paying bank
+    method: playwright
+    selector: "#bankName"
+    value_from: params.bank_name
+
+  - action: fill
+    description: Enter the third party the refund goes to
+    method: playwright
+    condition: params.third_party_name
+    selector: "#thirdPartyName"
+    value_from: params.third_party_name
+
+  - action: upload_file
+    description: Attach the NOC for refunding a third party
+    method: playwright
+    condition: params.noc_file
+    selector: "#nocFile"
+    file_path_from: params.noc_file
+
+  - action: upload_file
+    description: Attach the security deposit receipt
+    method: playwright
+    selector: "#receiptFile"
+    file_path_from: params.receipt_file
+
+  # The submit and the check are separate steps: the agent retries a failed step,
+  # and only the check is safe to repeat.
+  - action: click
+    description: Submit the deposit
+    method: playwright
+    selector: "#submit"
+
+  - action: wait_for_selector
+    description: Wait for ODeX's answer
+    method: playwright
+    selector: "#outcome"
+
+  - action: execute_script
+    description: Read the deposit reference ODeX gave
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const outcome = document.querySelector('#outcome');
+        if (outcome.dataset.status !== 'accepted') {
+          throw new Error(`ODeX turned the deposit down: ${outcome.dataset.message}`);
+        }
+        return { odex_deposit_ref: outcome.dataset.reference };
+      }
+
+  - action: end
+    description: Done

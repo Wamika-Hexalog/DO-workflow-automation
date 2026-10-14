@@ -169,6 +169,8 @@ def test_the_browser_agent_raises_one_request_per_house_bill(automated, monkeypa
     assert [c["hbl_no"] for c in calls] == [HBL, HBL_2]
     assert {c["mbl_no"] for c in calls} == {MBL}
     assert calls[0]["folder_pdf_path"] == calls[1]["folder_pdf_path"]  # one PDF per MBL
+    # The rest of what the SOP fills in comes from the job and the fixed details.
+    assert (calls[0]["liner"], calls[0]["do_type"], calls[0]["odex_url"]) == ("CMA CGM", "E-DO", "http://127.0.0.1:8100/odex")
     s = api.get(f"/api/shipments/{s['id']}").json()
     assert s["status"] == "do_requested"
     log = events_of(api, s)
@@ -236,3 +238,29 @@ def test_an_sop_without_an_end_step_is_refused_before_a_browser_opens(app, tmp_p
     )
     with pytest.raises(inngest.NonRetriableError, match="must finish with an `action: end` step"):
         asyncio.run(browser.run_sop(app.state.rt, str(sop), {}, "test"))
+
+
+def test_a_failed_run_says_what_the_page_said():
+    # The agent's own summary only names the step; the portal's words are in the step's result.
+    result = {
+        "error": "Step failed 3 consecutive times: Read the request number ODeX gave.",
+        "messages": [
+            {"role": "user", "result": {"status": "success", "action_type": "click"}},
+            {"role": "user", "result": {"status": "error", "message": "Page.evaluate: Error: ODeX turned the DO request down: duplicate\n    at eval"}},
+        ],
+    }
+    assert browser.step_error(result) == "ODeX turned the DO request down: duplicate"
+    assert browser.step_error({"messages": []}) is None
+
+
+def test_a_scripted_sop_needs_no_model_key(monkeypatch):
+    import os
+
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    scripted = [{"action": "goto", "method": "playwright"}, {"action": "end"}]
+    with browser._model_key_for(scripted):
+        assert os.environ["GOOGLE_API_KEY"]
+    assert "GOOGLE_API_KEY" not in os.environ
+    # A step that asks the model needs a real key.
+    with browser._model_key_for([{"action": "act", "method": "stagehand"}, {"action": "end"}]):
+        assert "GOOGLE_API_KEY" not in os.environ

@@ -1,0 +1,92 @@
+# Check a security deposit on ODeX (Counter Process → Deposit and Refund) and,
+# once CMA CGM has approved it, download its Security Deposit Acknowledgement Slip:
+# the DO folder's Security-cum-ODEX Receipt. Runs once per house bill, and is safe
+# to run again: it only reads.
+#
+# Written for the local ODeX (make portals). The real page's selectors aren't known
+# yet; sops/local/README.md says what's needed to point it at the real one.
+#
+# Params, built by app/portal_params.py (step odex_deposit_status):
+#   odex_url        where ODeX is: DO_ODEX_URL, the local one by default
+#   hbl_no          the house B/L the deposit is for
+#   slip_save_path  where to save the slip, with the job's files
+#
+# Reads back: deposit_ref, deposit_status, and downloaded_file_path once the slip is saved
+metadata:
+  name: "Local ODeX - Deposit status and slip"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the menus, which only show once logged in
+    method: playwright
+    selector: "#menu"
+
+  - action: click
+    description: Open the Counter Process menu
+    method: playwright
+    selector: "#menu-counter-process"
+
+  - action: click
+    description: Go to Deposit and Refund
+    method: playwright
+    selector: "#nav-deposit-refund"
+
+  - action: wait_for_selector
+    description: Wait for the list of deposits
+    method: playwright
+    selector: "#deposits"
+
+  # The list is newest first, so the first row for the B/L is its latest deposit.
+  # Marks the slip link for the download step, which takes a fixed selector.
+  - action: execute_script
+    description: Find this B/L's deposit and read its status
+    method: playwright
+    extract_result: true
+    script_args:
+      hbl_no: params.hbl_no
+    script: |
+      ({ hbl_no }) => {
+        const row = [...document.querySelectorAll('#deposits tbody tr[data-bl]')].find((r) => r.dataset.bl === hbl_no);
+        if (!row) throw new Error(`ODeX has no deposit for B/L ${hbl_no}`);
+        const approved = row.dataset.status === 'Deposit Approved';
+        if (approved) row.querySelector('a.download-slip').id = 'slip-to-download';
+        return { deposit_ref: row.dataset.ref, deposit_status: row.dataset.status, set_params: { slip_ready: approved } };
+      }
+
+  - action: download_file
+    description: Download the deposit slip, once the deposit is approved
+    method: playwright
+    condition: params.slip_ready
+    selector: "#slip-to-download"
+    save_path_from: params.slip_save_path
+
+  - action: end
+    description: Done

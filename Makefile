@@ -1,4 +1,4 @@
-.PHONY: setup assets api web inngest dev serve demo test test-browser try-agent
+.PHONY: setup assets api web inngest dev serve demo test test-browser try-agent portals portal-step demo-local
 
 # uv installs Python 3.12 (backend/.python-version) and every backend package;
 # npm installs the UI and the Inngest dev server (pinned in frontend/package.json).
@@ -30,7 +30,8 @@ demo:
 test:
 	cd backend && uv run pytest -q
 
-# The browser agent against a mock ODeX page, in a real Chromium. DO_BROWSER_HEADLESS=0 shows it.
+# The browser agent in a real Chromium: against a mock ODeX page, and through the
+# whole process on the local portals. DO_BROWSER_HEADLESS=0 shows it.
 test-browser:
 	cd backend && uv run pytest -q -m browser
 
@@ -39,8 +40,26 @@ test-browser:
 # SHOW=1 opens the browser so you can watch.
 try-agent:
 	cd backend && EXAMPLE_SITE_USERNAME=practice EXAMPLE_SITE_PASSWORD='SuperSecretPassword!' \
-		uv run python scripts/run_sop.py sops/examples/sop_example_login_and_upload.yaml \
+		DO_BROWSER_ALLOWED_HOSTS=practice.expandtesting.com uv run python scripts/run_sop.py sops/examples/sop_example_login_and_upload.yaml \
 		--param file_path=sops/examples/dummy-upload.txt $(if $(SHOW),--show)
+
+# Local versions of ODeX and CMA CGM's RTGS page, and a control panel that plays
+# CMA CGM: http://127.0.0.1:8100. Only this machine can open them.
+portals:
+	cd backend && uv run uvicorn local_portals.main:create_app --factory --host 127.0.0.1 --port 8100
+
+# One step of the DO process for a job, on the local portals, filled from the app's
+# database: make portal-step JOB=0431 STEP=odex_deposit_new. SHOW=1 to watch, HBL=
+# for one house bill. The steps are listed in backend/sops/local/README.md.
+portal-step:
+	cd backend && uv run python scripts/run_sop.py --job $(JOB) --step $(STEP) $(if $(HBL),--hbl $(HBL)) $(if $(SHOW),--show)
+
+# The app, the Inngest dev server and the local portals. Approving a DO request in
+# the app raises it on the local ODeX, in a visible, slowed-down browser.
+demo-local:
+	cd frontend && npm run build
+	DO_ODEX_SOP=$(CURDIR)/backend/sops/local/odex/do_request_new.yaml DO_BROWSER_HEADLESS=0 BROWSER_SLOW_MO_MS=400 \
+		$(MAKE) -j3 serve inngest portals
 
 # Stamps, bonds and letterhead artwork, built from the Docs folder the team shared.
 assets:

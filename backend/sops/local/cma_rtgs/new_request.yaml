@@ -1,0 +1,124 @@
+# Enter the DO invoice and security deposit payments on CMA CGM's RTGS payments
+# page (Finance → RTGS → New Request), after Finance has paid both and shared the
+# UTRs. CMA CGM then emails a receipt for each. Runs once per MBL.
+#
+# Written for the local version (make portals), which sits at the real page's path.
+# The real page's fields aren't known yet; sops/local/README.md says what's needed.
+#
+# Params, built by app/portal_params.py (step cma_rtgs_new_request):
+#   cma_rtgs_url    where the site is: DO_CMA_RTGS_URL, the local one by default
+#   mbl_no          job: Master B/L no. (both receipts are against the master bill)
+#   customer_name   job: Consignee as per MBL, who pays CMA CGM
+#   email           fixed details: Mailbox for CMA CGM's emails (the receipts come here)
+#   bank_name       fixed details: Bank that pays CMA CGM
+#   payment_date    job: Payment date, YYYY-MM-DD
+#   invoice_no      job: DO invoice no.
+#   invoice_amount  job: DO invoice amount
+#   invoice_utr     job: UTR for the invoice
+#   deposit_amount  job: Security deposit
+#   deposit_utr     job: UTR for the deposit
+#
+# Reads back: cma_rtgs_request_ref
+metadata:
+  name: "Local CMA CGM RTGS - New Request"
+  version: "0.1"
+
+steps:
+  - action: goto
+    description: Open the New RTGS Request page
+    method: playwright
+    url: "{params.cma_rtgs_url}/index.php/Finance/RTGS/NewRequest/"
+    wait_for: domcontentloaded
+
+  - action: wait_for_selector
+    description: Wait for the form
+    method: playwright
+    selector: "#rtgs-form"
+
+  - action: fill
+    description: Enter the master B/L number
+    method: playwright
+    selector: "#blNo"
+    value_from: params.mbl_no
+
+  - action: fill
+    description: Enter who paid
+    method: playwright
+    selector: "#customerName"
+    value_from: params.customer_name
+
+  - action: fill
+    description: Enter the mailbox the receipts go to
+    method: playwright
+    selector: "#email"
+    value_from: params.email
+
+  - action: fill
+    description: Enter the paying bank
+    method: playwright
+    selector: "#bankName"
+    value_from: params.bank_name
+
+  - action: fill
+    description: Enter the payment date
+    method: playwright
+    selector: "#paymentDate"
+    value_from: params.payment_date
+
+  - action: fill
+    description: Enter the DO invoice number
+    method: playwright
+    selector: "#invoiceNo"
+    value_from: params.invoice_no
+
+  - action: fill
+    description: Enter the invoice amount
+    method: playwright
+    selector: "#invoiceAmount"
+    value_from: params.invoice_amount
+
+  - action: fill
+    description: Enter the UTR of the invoice payment
+    method: playwright
+    selector: "#invoiceUtr"
+    value_from: params.invoice_utr
+
+  - action: fill
+    description: Enter the security deposit amount
+    method: playwright
+    selector: "#depositAmount"
+    value_from: params.deposit_amount
+
+  - action: fill
+    description: Enter the UTR of the deposit payment
+    method: playwright
+    selector: "#depositUtr"
+    value_from: params.deposit_utr
+
+  # The submit and the check are separate steps: the agent retries a failed step,
+  # and only the check is safe to repeat.
+  - action: click
+    description: Submit the payments
+    method: playwright
+    selector: "#submit"
+
+  - action: wait_for_selector
+    description: Wait for the site's answer
+    method: playwright
+    selector: "#outcome"
+
+  - action: execute_script
+    description: Read the request number the site gave
+    method: playwright
+    extract_result: true
+    script: |
+      () => {
+        const outcome = document.querySelector('#outcome');
+        if (outcome.dataset.status !== 'accepted') {
+          throw new Error(`The RTGS site turned the payments down: ${outcome.dataset.message}`);
+        }
+        return { cma_rtgs_request_ref: outcome.dataset.reference };
+      }
+
+  - action: end
+    description: Done

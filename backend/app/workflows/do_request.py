@@ -4,8 +4,8 @@
 
 With an ODeX SOP the browser agent raises each request: it enters the HBL number
 (ODeX wants the HBL, not the MBL) and uploads the folder PDF, the same file for
-every house bill of the MBL. Without one, ops raise it by hand and their
-approval records that it is done.
+every house bill of the MBL. Its params come from app/portal_params.py. Without
+an SOP, ops raise it by hand and their approval records that it is done.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any
 
 import inngest
 
-from .. import claims, service, tasks
+from .. import claims, portal_params, service, tasks
 from ..db import IdempotencyKey
 from ..runtime import Runtime
 from . import browser
@@ -44,7 +44,9 @@ def _fail(rt: Runtime, key: str, note: str) -> None:
         claims.fail(session, key, note)
 
 
-def raise_on_odex(rt: Runtime, shipment_id: str, plan: dict[str, Any], hbl: str) -> Callable[[], Awaitable[dict]]:
+def raise_on_odex(
+    rt: Runtime, shipment_id: str, sop: str, params: dict[str, Any], hbl: str
+) -> Callable[[], Awaitable[dict]]:
     """Step handler: one ODeX DO request, never twice for the same house bill."""
 
     async def run() -> dict[str, Any]:
@@ -58,16 +60,10 @@ def raise_on_odex(rt: Runtime, shipment_id: str, plan: dict[str, Any], hbl: str)
             ) from None
         if earlier is not None:
             return {**earlier, "repeat": True}
-        params = {
-            "hbl_no": hbl,
-            "mbl_no": plan["mbl_no"],
-            "job_no": plan["job_no"],
-            "folder_pdf_path": plan["folder_pdf"],
-        }
         try:
             outcome = await browser.run_sop(
                 rt,
-                plan["sop"],
+                sop,
                 params,
                 f"ODeX DO request for HBL {hbl}",
                 shipment_id=shipment_id,
@@ -124,10 +120,17 @@ def create_do_request_submit_function(rt: Runtime) -> inngest.Function:
         shipment_id = shipment_id_of(ctx)
         by = str((ctx.event.data or {}).get("completed_by") or "ops")
         plan = await ctx.step.run("plan", job(service.do_request_plan_job, rt, shipment_id))
+        params: dict[str, dict[str, Any]] = {}
+        if plan["automated"]:
+            params = await ctx.step.run(
+                "params", job(portal_params.params_job, rt, shipment_id, portal_params.DO_REQUEST)
+            )
         results: dict[str, dict[str, Any]] = {}
         for hbl in plan["hbls"]:
             if plan["automated"]:
-                results[hbl] = await ctx.step.run(f"odex-do-request:{hbl}", raise_on_odex(rt, shipment_id, plan, hbl))
+                results[hbl] = await ctx.step.run(
+                    f"odex-do-request:{hbl}", raise_on_odex(rt, shipment_id, plan["sop"], params[hbl], hbl)
+                )
             else:
                 results[hbl] = {"by_hand": True}
         await ctx.step.run("record", job(service.record_do_request_job, rt, shipment_id, results, by))

@@ -1,0 +1,165 @@
+"""The whole CMA CGM process on the local portals, with python-brain's browser agent
+in a real Chromium: every SOP in sops/local, filled from the database, and the
+documents the portals hand out going into the DO folder and passing its checks.
+
+It opens Chromium, so it is slow and opt-in, like test_browser_agent:
+``make test-browser`` or ``pytest -m browser``. DO_BROWSER_HEADLESS=0 shows it.
+"""
+from __future__ import annotations
+
+import asyncio
+import io
+import os
+import threading
+import time
+from datetime import date, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+import uvicorn
+from fastapi.testclient import TestClient
+from pypdf import PdfReader
+
+from app import portal_params
+from app.config import LOCAL_ODEX_LOGIN
+from app.main import create_app
+from app.portal_params import DEPOSIT, DEPOSIT_STATUS, DO_REQUEST, DO_REQUEST_STATUS, REQUEST_INVOICE, RTGS_PAYMENT
+from app.workflows import browser
+from conftest import HBL, MBL, Engine, RecordingInngest, attach, build, make_pdf, new_shipment, settings_for, task
+from local_portals import cma
+from local_portals.main import create_app as create_portals
+
+pytestmark = pytest.mark.browser
+
+
+@pytest.fixture()
+def portals(tmp_path, monkeypatch):
+    """The local portals, served on a free port for the browser to open."""
+    for name, value in LOCAL_ODEX_LOGIN.items():
+        monkeypatch.setenv(name, value)
+    app = create_portals(tmp_path / "portals", autoplay=False)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while not server.started:
+        assert time.monotonic() < deadline, "the local portals didn't start"
+        time.sleep(0.05)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield SimpleNamespace(url=f"http://127.0.0.1:{port}", store=app.state.store)
+    server.should_exit = True
+    thread.join(timeout=10)
+
+
+@pytest.fixture()
+def do_app(tmp_path, private_dir, portals):
+    """The DO app pointed at the local portals, with the local SOP for the DO request."""
+    settings = settings_for(
+        tmp_path,
+        private_dir,
+        odex_sop_path=portal_params.STEPS[DO_REQUEST].sop,
+        browser_headless=os.getenv("DO_BROWSER_HEADLESS", "1") != "0",
+        odex_url=f"{portals.url}/odex",
+        cma_rtgs_url=f"{portals.url}/cma-rtgs",
+    )
+    client = RecordingInngest()
+    app = create_app(settings, client)
+    with TestClient(app) as api:
+        yield api, Engine(app, client)
+
+
+def run(api: TestClient, shipment: dict, step_key: str) -> list[dict]:
+    """One step of the process for the job, the way the workflows run it: the
+    step's SOP, its params from the database. What each run read back."""
+    rt = api.app.state.rt
+    step = portal_params.STEPS[step_key]
+    readings = []
+    for target, params in portal_params.params_job(rt, shipment["id"], step_key).items():
+        outcome = asyncio.run(
+            browser.run_sop(rt, str(step.sop), params, f"{step.title} for {target}", shipment_id=shipment["id"], task_key=step_key)
+        )
+        readings.append(outcome["extraction_data"])
+    return readings
+
+
+def answer(portals: SimpleNamespace, kind: str) -> None:
+    """CMA CGM answers every request of a kind that waits for it."""
+    with portals.store.read() as data:
+        waiting = [item["id"] for item in data[kind] if item["status"] == cma.WAITING[kind]]
+    assert waiting, f"nothing waits in {kind}"
+    for item_id in waiting:
+        cma.ANSWERS[kind](portals.store, item_id)
+
+
+def last_email(portals: SimpleNamespace) -> list[tuple[str, bytes]]:
+    with portals.store.read() as data:
+        attachments = data["outbox"][0]["attachments"]
+    files = [portals.store.file(file_id) for file_id in attachments]
+    return [(name, path.read_bytes()) for name, path in files]
+
+
+def test_the_do_process_runs_on_the_local_portals(do_app, portals):
+    api, engine = do_app
+    assert api.patch("/api/profile", json={"values": {"do_mailbox": "do-desk@example.com"}}).status_code == 200
+    s = new_shipment(api)
+
+    # IGM filed: request the DO invoice. The liner verifies it and emails it.
+    assert run(api, s, REQUEST_INVOICE)[0]["odex_invoice_request_ref"].startswith("LR")
+    answer(portals, "invoice_requests")
+    with portals.store.read() as data:
+        invoice = dict(data["invoice_requests"][0])
+    # What the Graph ingest will note from CMA CGM's and Finance's emails.
+    paid = dict(
+        do_invoice_no=invoice["invoice_no"], do_invoice_amount=str(invoice["amount"]), payment_utr="DEMOUTR0001INV",
+        deposit_utr="DEMOUTR0001DEP", payment_date=(date.today() - timedelta(days=1)).isoformat(),
+    )
+    s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": paid}).json()
+
+    # Finance paid: enter both payments on the RTGS site. CMA CGM emails a receipt for each.
+    assert run(api, s, RTGS_PAYMENT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
+    answer(portals, "rtgs_requests")
+    (do_receipt_name, do_receipt), (security_name, security_receipt) = last_email(portals)
+    s = attach(api, s, "do_receipt", do_receipt, do_receipt_name)
+    s = attach(api, s, "security_receipt", security_receipt, security_name)
+
+    # The deposit, with Hexalog's NOC and the security receipt, then its slip once approved.
+    assert run(api, s, DEPOSIT)[0]["odex_deposit_ref"].startswith("SD")
+    assert run(api, s, DEPOSIT_STATUS)[0]["deposit_status"] == "Pending Approval"
+    answer(portals, "deposits")
+    status = run(api, s, DEPOSIT_STATUS)[0]
+    assert status["deposit_status"] == "Deposit Approved"
+    slip = Path(status["downloaded_file_path"]).read_bytes()
+    s = attach(api, s, f"security_odex_receipt:{HBL}", slip, "Security deposit slip.pdf")
+    with portals.store.read() as data:
+        deposit = dict(data["deposits"][0])
+    assert (deposit["bl_no"], deposit["utr"], deposit["refund_to"]) == (HBL, "DEMOUTR0001DEP", "Third Party")
+    assert deposit["noc_file"] and deposit["receipt_file"]
+
+    # The DO folder takes the portals' documents like the real ones.
+    s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
+    s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL}"))
+    s = build(api, engine, s)
+    assert s["status"] == "folder_ready", [t["note"] for t in s["tasks"]]
+
+    # Ops approve the DO request: the workflow raises it on the local ODeX.
+    assert api.post(f"/api/shipments/{s['id']}/tasks/odex_do_request/complete", json={"by": "Ravi"}).status_code == 202
+    engine.run()
+    s = api.get(f"/api/shipments/{s['id']}").json()
+    assert s["status"] == "do_requested", task(s, "odex_do_request")["note"]
+    with portals.store.read() as data:
+        request = dict(data["do_requests"][0])
+    assert request["bl_no"] == HBL and request["documents"][0]["name"].startswith("HXL-IMP-")
+    log = [e["detail"] for e in api.get(f"/api/shipments/{s['id']}/events").json()]
+    assert f"DO request raised on ODeX for HBL {HBL}, reference {request['ref']}." in log
+
+    # CMA CGM issues the delivery order; the status check downloads the eDO.
+    answer(portals, "do_requests")
+    edo = run(api, s, DO_REQUEST_STATUS)[0]
+    assert edo["do_request_status"] == "DO Issued"
+    text = PdfReader(io.BytesIO(Path(edo["downloaded_file_path"]).read_bytes())).pages[0].extract_text()
+    assert HBL in text and "DELIVERY ORDER" in text
+
+    # Every run is in the job's run log: six steps, the deposit checked twice.
+    runs = api.get(f"/api/shipments/{s['id']}/runs").json()
+    assert len(runs) == 7 and {r["status"] for r in runs} == {"completed"}

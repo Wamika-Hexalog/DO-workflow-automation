@@ -50,11 +50,21 @@ def store_upload(
 def letter_input(
     folder: Folder, settings: Settings, slot: Slot, profile_values: dict[str, Any], shipment_values: dict[str, Any]
 ) -> letters.LetterInput:
+    stamp_key = slot.doc.stamp.stamp if slot.doc.stamp else None
+    return letter_values(folder, settings, stamp_key, profile_values, shipment_values)
+
+
+def letter_values(
+    folder: Folder,
+    settings: Settings,
+    stamp_key: str | None,
+    profile_values: dict[str, Any],
+    shipment_values: dict[str, Any],
+) -> letters.LetterInput:
+    """Every field, as stored and as printed, for a letter signed with ``stamp_key``."""
     raw = {key: folder.value(key, profile_values, shipment_values) for key in folder.fields}
     printed = {key: print_value(folder.fields[key], raw[key], folder.date_format) for key in folder.fields}
-    stamp = None
-    if slot.doc.stamp:
-        stamp = settings.private_dir / "stamps" / folder.stamps[slot.doc.stamp.stamp].file
+    stamp = settings.private_dir / "stamps" / folder.stamps[stamp_key].file if stamp_key else None
     return letters.LetterInput(printed, raw, split_list(shipment_values.get("hbl_nos")), stamp, settings.assets_dir)
 
 

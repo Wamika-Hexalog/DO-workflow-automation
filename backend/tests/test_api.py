@@ -7,11 +7,14 @@ from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from app.containers import check_digit, problem
+from app.db import Profile, Shipment
 from app.folder import FolderError, load_folder
 from app.main import create_app
+from app.seed import PROFILE_ID
 from conftest import (
     HBL,
     MBL,
+    Engine,
     RecordingInngest,
     attach,
     attach_everything,
@@ -212,3 +215,27 @@ def test_demo_data_resets(tmp_path, private_dir):
         api.post("/api/shipments", json={})
         assert api.post("/api/demo/reset").json() == {"ok": True}
         assert len(api.get("/api/shipments").json()) == 4
+
+
+def test_a_new_field_starts_at_its_default_without_making_folders_out_of_date(tmp_path, private_dir):
+    settings = settings_for(tmp_path, private_dir)
+    client = RecordingInngest()
+    app = create_app(settings, client)
+    with TestClient(app) as api:
+        s = build(api, Engine(app, client), attach_everything(api, new_shipment(api)))
+        assert s["folder"]["stale"] is False
+    # As if the database came from before do_folder.yaml had these fields.
+    with app.state.rt.sessionmaker() as session:
+        profile = session.get(Profile, PROFILE_ID)
+        profile.data = {k: v for k, v in profile.data.items() if k not in ("odex_liner", "payer_bank")}
+        profile.updated_at = Profile.updated_at  # an old database, not an edit
+        shipment = session.get(Shipment, s["id"])
+        shipment.data = {k: v for k, v in shipment.data.items() if k != "deposit_amount"} | {"deposit_refund_to": ""}
+        session.commit()
+
+    with TestClient(create_app(settings, RecordingInngest())) as api:
+        assert api.get("/api/profile").json()["values"]["odex_liner"] == "CMA CGM"
+        s = api.get(f"/api/shipments/{s['id']}").json()
+        assert s["values"]["deposit_amount"] == "40000"
+        assert s["values"]["deposit_refund_to"] == ""  # cleared by someone: stays cleared
+        assert s["folder"]["stale"] is False

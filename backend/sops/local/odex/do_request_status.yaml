@@ -1,0 +1,91 @@
+# Check a DO request on ODeX (e-Payment → DO Request) and, once CMA CGM has
+# issued the delivery order, download the eDO. Runs once per house bill, and is
+# safe to run again: it only reads.
+#
+# Written for the local ODeX (make portals). The real page's selectors aren't known
+# yet; sops/local/README.md says what's needed to point it at the real one.
+#
+# Params, built by app/portal_params.py (step odex_do_request_status):
+#   odex_url       where ODeX is: DO_ODEX_URL, the local one by default
+#   hbl_no         the house B/L the request is for
+#   edo_save_path  where to save the eDO, with the job's files
+#
+# Reads back: do_request_ref, do_request_status, and downloaded_file_path once the eDO is saved
+metadata:
+  name: "Local ODeX - DO request status and eDO"
+  version: "0.1"
+
+credentials:
+  username_env: "LOCAL_ODEX_USERNAME"
+  password_env: "LOCAL_ODEX_PASSWORD"
+
+steps:
+  - action: goto
+    description: Open the ODeX login page
+    method: playwright
+    url: "{params.odex_url}/login"
+    wait_for: domcontentloaded
+
+  - action: fill
+    description: Enter the username
+    method: playwright
+    selector: "#username"
+    value_from: credentials.username_env
+
+  - action: fill
+    description: Enter the password
+    method: playwright
+    selector: "#password"
+    value_from: credentials.password_env
+
+  - action: click
+    description: Log in
+    method: playwright
+    selector: "#login"
+
+  - action: wait_for_selector
+    description: Wait for the menus, which only show once logged in
+    method: playwright
+    selector: "#menu"
+
+  - action: click
+    description: Open the e-Payment menu
+    method: playwright
+    selector: "#menu-e-payment"
+
+  - action: click
+    description: Go to DO Request
+    method: playwright
+    selector: "#nav-do-request"
+
+  - action: wait_for_selector
+    description: Wait for the list of DO requests
+    method: playwright
+    selector: "#do-requests"
+
+  # The list is newest first, so the first row for the B/L is its latest request.
+  # Marks the eDO link for the download step, which takes a fixed selector.
+  - action: execute_script
+    description: Find this B/L's DO request and read its status
+    method: playwright
+    extract_result: true
+    script_args:
+      hbl_no: params.hbl_no
+    script: |
+      ({ hbl_no }) => {
+        const row = [...document.querySelectorAll('#do-requests tbody tr[data-bl]')].find((r) => r.dataset.bl === hbl_no);
+        if (!row) throw new Error(`ODeX has no DO request for B/L ${hbl_no}`);
+        const issued = row.dataset.status === 'DO Issued';
+        if (issued) row.querySelector('a.download-edo').id = 'edo-to-download';
+        return { do_request_ref: row.dataset.ref, do_request_status: row.dataset.status, set_params: { edo_ready: issued } };
+      }
+
+  - action: download_file
+    description: Download the eDO, once it's issued
+    method: playwright
+    condition: params.edo_ready
+    selector: "#edo-to-download"
+    save_path_from: params.edo_save_path
+
+  - action: end
+    description: Done
