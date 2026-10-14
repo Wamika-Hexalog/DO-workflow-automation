@@ -2,7 +2,7 @@
 
 The CMA CGM DO process uses two websites: ODeX, and CMA CGM's RTGS payments page. The SOPs here drive local versions of both (`backend/local_portals`). That lets the whole process be shown, and every SOP be proven, without touching a real site. The browser agent is python-brain's, and the SOPs use python-brain's format. All their steps are scripted Playwright steps, so no model is called.
 
-The local RTGS page copies screenshots of CMA CGM's real one. The local ODeX follows the SOP sheet of `DO PROCESS FLOW E2E.xlsx` and the sample documents in `Docs/`, since its real pages haven't been seen yet. See [Moving to the real sites](#moving-to-the-real-sites).
+The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fields, checks and messages, and the same page after Submit. So the RTGS SOP uses the real page's selectors. The local ODeX follows the SOP sheet of `DO PROCESS FLOW E2E.xlsx` and the sample documents in `Docs/`, since its real pages haven't been seen yet. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
 
@@ -40,7 +40,7 @@ It reads back ODeX's request number (`odex_invoice_request_ref`). CMA CGM then v
 
 ### 2. Confirm the payments: `cma_rtgs_shipment_payment` and `cma_rtgs_security_deposit`
 
-CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page (`rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest/`), after Finance pays and shares the UTRs. It's filed twice per MBL, once for each payment, with the same SOP (`cma_rtgs/new_request.yaml`):
+CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page (`rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest?shipcomp_code=0001`), after Finance pays and shares the UTRs. It has no login and no captcha. It's filed twice per MBL, once for each payment, with the same SOP (`cma_rtgs/new_request.yaml`):
 
 - **The shipment payment**: invoice grid row 1 holds the DO invoice number, the B/L and the amount.
 - **The security deposit**: row 1 has Security Deposit ticked, the OBL (the master B/L) and the amount. The invoice number cell is greyed out.
@@ -61,7 +61,13 @@ CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page (`rtgs.india.cma-cgm.
 | Grid row 1: BL Number | Job: Master B/L no. (`mbl_no`) |
 | Grid row 1: Amount | The same amount as above |
 
-Before submitting, the SOP checks that it's CMA CGM's page (the same page serves other carriers under Change Carrier), and reads row 1 back to make sure the grid holds what it typed. Each run reads back the request number (`cma_rtgs_request_ref`). CMA CGM then emails a receipt for each payment, and they go in the DO folder: the DO Receipt and the Security Receipt.
+Before submitting, the SOP:
+
+- checks that it's CMA CGM's page (`shipcomp_code` 0001), since the same page serves ANL under Change Carrier;
+- reads row 1 back to make sure the grid holds what it typed;
+- ticks "I have read and accept CMA CGM privacy policy", which the page requires.
+
+The page checks the form in the browser before sending anything. A failing field gets the page's own message, such as "Please enter valid UTR Number", and the run fails with those messages. A good request gets "RTGS Confirmation Request (CMA CGM) Submitted Successfully" and a request reference, which the SOP reads back (`cma_rtgs_request_ref`). CMA CGM then emails a receipt for each payment, and they go in the DO folder: the DO Receipt and the Security Receipt.
 
 ### 3. Raise the security deposit: `odex_deposit_new`
 
@@ -123,7 +129,7 @@ For now ops type these values in. Once the Graph subscription's emails are read,
 - Each SOP has a header comment listing its params and where each one comes from.
 - Each ODeX SOP logs in from the credentials block, then goes through the menus as a person would.
 - Drop-downs are set by an `execute_script` step with `script_args`. Values are passed as arguments and are never pasted into the script.
-- The RTGS page's invoice grid is filled the way a person fills it: click the cell, type the value, press Enter, one cell at a time.
+- The RTGS page's invoice grid is Handsontable (0.28 on the real page). It's filled the way a person fills it: click the cell, type the value, press Enter, one cell at a time.
 - A submit and the check of its answer are separate steps. The agent retries a failed step up to three times, and only the check is safe to repeat. The check reads the portal's answer (`#outcome` on the local sites). If the portal turned the form down, the check throws, and the run fails with the portal's own message.
 - The local portals refuse a second deposit or DO request for the same B/L, and a second payment with the same UTR. This is how a real portal would behave. The app also takes its own claim before raising each DO request, so it never raises one twice.
 - Downloads use a fixed selector. The check step marks the row's link with an id, and sets a param that the download step's `condition` reads.
@@ -133,9 +139,11 @@ For now ops type these values in. Once the Graph subscription's emails are read,
 
 The SOPs open `{params.odex_url}` and `{params.cma_rtgs_url}`, which come from `DO_ODEX_URL` and `DO_CMA_RTGS_URL`. The browser agent may only open the hosts listed in `DO_BROWSER_ALLOWED_HOSTS`, which defaults to this machine. A run that tries to open anything else is blocked and fails, naming the host.
 
-Pointing an SOP at a real site means:
+The RTGS SOP already uses the real page's selectors. Pointing it at the real site takes only `DO_CMA_RTGS_URL=https://rtgs.india.cma-cgm.com` and `DO_BROWSER_ALLOWED_HOSTS=rtgs.india.cma-cgm.com`. It has never been run there: there, it confirms a real payment. Do it first with a real payment, with someone watching (`SHOW=1`).
 
-1. Copy the SOP to `sops/odex/` (or `sops/cma_rtgs/`).
+Pointing an ODeX SOP at the real site means:
+
+1. Copy the SOP to `sops/odex/`.
 2. Swap in the real page's selectors and paths, and use the real login (`ODEX_USERNAME` and `ODEX_PASSWORD` in `backend/.env`).
 3. Set the URL, and allow the real host in `DO_BROWSER_ALLOWED_HOSTS`.
 
@@ -145,7 +153,7 @@ What's still missing for the real SOPs:
 
 1. **The real ODeX pages.** A walk-through or screenshots of ODeX's three forms and two lists, like the ones we have for the RTGS page. That gives the fields, their order and the selectors.
 2. **ODeX login.** A test login, and whether login asks for an OTP or a captcha.
-3. **The rest of the RTGS page.** The screenshots stop above the Submit button. We still need: what's below the grid (the Submit button, and any captcha), what the page shows after submitting, and whether the page needs a login. Saving the page as HTML (or a look in the browser's DevTools) would also confirm the selectors, and whether the grid really is Handsontable.
+3. **A first real RTGS confirmation.** The RTGS SOP has the real page's selectors but has only run on the local page. Its first real run should be with a real payment, watched. Also: the real page's answer when it turns a request down on the server (a UTR entered twice, say) hasn't been seen.
 4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? On ODeX the app enters the full amount for each house B/L for now. On the RTGS page it confirms one deposit against the MBL, as in the screenshot.
 5. **The JSR NOC.** Confirm that `NOC (5).docx` is the "JSR NOC" the SOP sheet asks for on the deposit. It is Hexalog's no-objection to refunding JSR, and the app now writes it.
 6. **The UTR on the deposit.** The sample deposit slip shows UTR …4389, the invoice payment's UTR, not …8497 from the deposit's own receipt. Which one does ODeX expect?

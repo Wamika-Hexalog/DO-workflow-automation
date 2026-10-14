@@ -26,8 +26,11 @@ INVOICE_FORM = dict(
     liner="CMA CGM", invoiceType="Delivery Order", blNo=MBL, containers="TCNU5191327",
     email="do-desk@example.com", remarks="HXL/IMP/26-27/0431",
 )
-SHIPMENT_ROW = {"security_deposit": False, "invoice_no": "INV-DEMO-0431", "bl_no": MBL, "amount": "54720.68", "remarks": ""}
-DEPOSIT_ROW = {"security_deposit": True, "invoice_no": "", "bl_no": MBL, "amount": "40000.00", "remarks": ""}
+# Rows of the RTGS page's invoice grid, as it posts them: Security Deposit,
+# Invoice Number, BL Number, Amount, Remarks.
+SHIPMENT_ROW = [False, "INV-DEMO-0431", MBL, 54720.68, None]
+DEPOSIT_ROW = [True, None, MBL, 40000, None]
+SPARE_ROW = [False, None, None, None, None]
 DEPOSIT_FORM = dict(
     liner="CMA CGM", blNo=HBL, amount="40000", paymentMode="RTGS/NEFT", utrNo="DEMOUTR0431DEP",
     paymentDate="2026-10-01", bankName="ICICI BANK", refundTo="Third Party",
@@ -48,14 +51,28 @@ def web(tmp_path, monkeypatch):
         yield client
 
 
-def rtgs_form(rows: list[dict], **fields: str) -> dict[str, str]:
-    """The RTGS Confirmation form as its page posts it: the grid's rows go as JSON."""
-    return {
-        "carrier": "CMA CGM", "company_name": "HEXALOG GLOBAL SUPPLY CHAINS PVT LTD", "contact_name": "Kishan Rawat",
-        "contact_number": "8802757004", "emails": "kishan@example.com,customs-ops@example.com",
-        "utr_number": "DEMOUTR0431INV", "currency": "INR", "bank_account": "123456789012", "amount": "54720.68",
-        "date_of_transfer": "01-10-2026", "invoices": json.dumps(rows), **fields,
+def rtgs_form(rows: list[list], **fields: str | None) -> dict[str, str]:
+    """The RTGS Confirmation form as the real page posts it: the whole grid, spare
+    rows included, goes as invoice_data. A field given as None isn't sent, like an
+    unticked box."""
+    form = {
+        "shipcomp_code": "0001", "company_name": "HEXALOG GLOBAL SUPPLY CHAINS PVT LTD",
+        "contact_name": "Kishan Rawat", "contact_number": "8802757004",
+        "contact_email": "kishan@example.com,customs-ops@example.com", "utr_number": "DEMOUTR0431INV",
+        "bank_account_number": "123456789012", "transfer_date": "01-10-2026", "currency": "INR",
+        "amount_transfered": "54720.68", "invoice_data": json.dumps({"data": [*rows, SPARE_ROW, SPARE_ROW]}),
+        "accept_tc": "on", "submit_rtgs": "Submit", **fields,
     }
+    return {key: value for key, value in form.items() if value is not None}
+
+
+def rtgs_answer(response) -> dict[str, str]:
+    """What the RTGS page made of a request, as the SOP reads it."""
+    if "Submitted Successfully" in response.text:
+        return {"status": "accepted", "reference": re.search(r"Request Reference (\d+)", response.text)[1]}
+    found = re.search(r'<p class="alert alert-danger">(.*?)</p>', response.text, re.S)
+    assert found, response.text
+    return {"status": "rejected", "message": unescape(found[1])}
 
 
 def outcome(response) -> dict[str, str]:
@@ -124,16 +141,27 @@ def test_an_invoice_request_is_checked_then_verified_by_the_liner(web):
 
 def test_each_payment_is_confirmed_on_its_own_with_its_receipt(web):
     page = web.get(RTGS).text
-    assert "RTGS Confirmation (CMA CGM) - New Request" in page and 'placeholder="Amount Transfered"' in page
-    assert "RTGS Confirmation (APL) - New Request" in web.get(f"{RTGS}?carrier=APL").text
+    assert "RTGS Confirmation (CMA CGM) - New Request" in page
+    for real_id in ("company_name", "contact_email", "utr_number", "bank_account_number", "transfer_date",
+                    "amount_transfered", "invoice_table", "accept_tc", "submit_rtgs"):
+        assert f'id="{real_id}"' in page, real_id
+    assert "RTGS Confirmation (ANL) - New Request" in web.get(f"{RTGS}?shipcomp_code=0002").text
 
-    shipment = outcome(web.post(RTGS, data=rtgs_form([SHIPMENT_ROW])))
-    assert shipment["status"] == "accepted" and "for invoice INV-DEMO-0431" in shipment["message"]
-    deposit = outcome(web.post(RTGS, data=rtgs_form([DEPOSIT_ROW], utr_number="DEMOUTR0431DEP", amount="40000.00")))
-    assert deposit["status"] == "accepted" and f"for the security deposit on {MBL}" in deposit["message"]
+    response = web.post(RTGS, data=rtgs_form([SHIPMENT_ROW]))
+    shipment = rtgs_answer(response)
+    assert shipment["status"] == "accepted" and shipment["reference"].isdigit()
+    assert "RTGS Confirmation Request (CMA CGM) Submitted Successfully" in response.text
+    assert "01-Oct-2026" in response.text and "INR  54720.68" in response.text
+    deposit = rtgs_answer(web.post(RTGS, data=rtgs_form([DEPOSIT_ROW], utr_number="DEMOUTR0431DEP", amount_transfered="40000")))
+    assert deposit["status"] == "accepted" and deposit["reference"] != shipment["reference"]
+    first, second = items(web, "rtgs_requests")
+    assert first["invoices"] == [
+        {"security_deposit": False, "invoice_no": "INV-DEMO-0431", "bl_no": MBL, "amount": 54720.68, "remarks": ""}
+    ]
+    assert second["invoices"] == [{"security_deposit": True, "invoice_no": "", "bl_no": MBL, "amount": 40000.0, "remarks": ""}]
 
     store = web.app.state.store
-    for request in items(web, "rtgs_requests"):
+    for request in (first, second):
         cma.send_receipts(store, request["id"])
     deposit_mail, shipment_mail = items(web, "outbox")  # newest first
     assert shipment_mail["to"] == "kishan@example.com, customs-ops@example.com"
@@ -146,24 +174,27 @@ def test_each_payment_is_confirmed_on_its_own_with_its_receipt(web):
 
 
 def test_the_rtgs_page_checks_the_payment_and_its_rows(web):
-    def problems(rows: list[dict] = (SHIPMENT_ROW,), **fields: str) -> str:
-        answer = outcome(web.post(RTGS, data=rtgs_form(list(rows), **fields)))
+    def problems(rows: list[list] = (SHIPMENT_ROW,), **fields: str) -> str:
+        answer = rtgs_answer(web.post(RTGS, data=rtgs_form(list(rows), **fields)))
         assert answer["status"] == "rejected"
         return answer["message"]
 
-    assert "Enter one to three email ids" in problems(emails="a@x.com,b@x.com,c@x.com,d@x.com")
-    assert "as DD-MM-YYYY, not in the future" in problems(date_of_transfer="2026-10-01")
-    assert "as DD-MM-YYYY, not in the future" in problems(date_of_transfer="01-10-2999")
-    assert "Enter your bank account number." in problems(bank_account="ICICI-1")
-    assert "Row 1: a security deposit has no invoice number." in problems([{**DEPOSIT_ROW, "invoice_no": "INV-1"}], amount="40000")
-    assert "Row 1: enter the invoice number, or tick Security Deposit." in problems([{**SHIPMENT_ROW, "invoice_no": ""}])
-    assert "The rows add up to 54,720.68, not the 50,000.00 transferred." in problems(amount="50000")
+    # The real page's own messages.
+    assert "Please enter valid Email(s)" in problems(contact_email="a@x.com,b@x.com,c@x.com,d@x.com")
+    assert "Please enter Transfer Date" in problems(transfer_date="2026-10-01")
+    assert "Please enter Transfer Date" in problems(transfer_date="01-10-2999")
+    assert "Please enter valid Bank A/C Number" in problems(bank_account_number="ICICI-1")
+    assert "You have to agree to our privacy policy" in problems(accept_tc=None)
+    # The local page's own checks of the grid.
+    assert "Row 1: a security deposit has no invoice number." in problems([[True, "INV-1", MBL, 40000, None]], amount_transfered="40000")
+    assert "Row 1: enter the invoice number, or tick Security Deposit." in problems([[False, None, MBL, 54720.68, None]])
+    assert "The rows add up to 54,720.68, not the 50,000.00 transferred." in problems(amount_transfered="50000")
     assert "Enter the invoice details" in problems([])
     assert items(web, "rtgs_requests") == []
 
     # The same UTR can't be confirmed twice.
-    assert outcome(web.post(RTGS, data=rtgs_form([SHIPMENT_ROW])))["status"] == "accepted"
-    assert "UTR DEMOUTR0431INV is already confirmed" in problems()
+    assert rtgs_answer(web.post(RTGS, data=rtgs_form([SHIPMENT_ROW])))["status"] == "accepted"
+    assert "UTR Number DEMOUTR0431INV is already submitted" in problems()
 
 
 def test_a_deposit_needs_its_receipt_and_for_a_third_party_the_noc(web):

@@ -77,7 +77,7 @@ Uploads and edits tell the engine in the background, so a stopped engine never s
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
 
 - **ODeX** (`/odex`), with the three pages the process uses, under their real menus: Request New Invoice, New Deposit (with its slip once approved) and New DO Request (with its eDO once issued).
-- **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from screenshots of the real one, invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
+- **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from the real one's HTML (same ids, checks and messages, and the same page after Submit), invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
 - **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
 
 Every page and document says it's a local demo. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.

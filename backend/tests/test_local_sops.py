@@ -16,6 +16,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import inngest
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
@@ -129,8 +130,8 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": paid}).json()
 
     # Finance paid: confirm each payment on CMA CGM's RTGS page. CMA CGM emails a receipt for each.
-    assert run(api, s, RTGS_SHIPMENT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
-    assert run(api, s, RTGS_DEPOSIT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
+    assert run(api, s, RTGS_SHIPMENT)[0]["cma_rtgs_request_ref"].isdigit()
+    assert run(api, s, RTGS_DEPOSIT)[0]["cma_rtgs_request_ref"].isdigit()
     with portals.store.read() as data:
         rows = [request["invoices"][0] for request in data["rtgs_requests"]]
     assert [(r["security_deposit"], r["invoice_no"], r["amount"]) for r in rows] == [
@@ -183,3 +184,20 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     # Every run is in the job's run log: seven steps, the deposit checked twice.
     runs = api.get(f"/api/shipments/{s['id']}/runs").json()
     assert len(runs) == 8 and {r["status"] for r in runs} == {"completed"}
+
+
+def test_the_rtgs_pages_own_checks_stop_a_bad_payment(do_app, portals):
+    # The page checks the form in the browser, as the real one does: nothing is
+    # sent, and the run fails with the page's own message.
+    api, _ = do_app
+    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "1234567"}  # one digit short
+    assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
+    paid = dict(
+        do_invoice_no="INV-DEMO-0001", do_invoice_amount="54720.68", payment_utr="DEMOUTR0001INV",
+        deposit_utr="DEMOUTR0001DEP", payment_date=(date.today() - timedelta(days=1)).isoformat(),
+    )
+    s = api.patch(f"/api/shipments/{new_shipment(api)['id']}/values", json={"values": paid}).json()
+    with pytest.raises(inngest.NonRetriableError, match="The RTGS page didn't take the payment: Please enter valid Bank A/C Number"):
+        run(api, s, RTGS_SHIPMENT)
+    with portals.store.read() as data:
+        assert data["rtgs_requests"] == []

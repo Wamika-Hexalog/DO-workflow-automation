@@ -1,18 +1,19 @@
 # Confirm a payment on CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page
-# (rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest/). Filed twice per MBL,
-# once for each payment Finance makes:
+# (rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest?shipcomp_code=0001).
+# Filed twice per MBL, once for each payment Finance makes:
 #   - the shipment payment: row 1 of the invoice grid has the DO invoice number,
 #     the B/L and the amount;
 #   - the security deposit: row 1 has Security Deposit ticked, the OBL (the master
 #     B/L) and the amount, and no invoice number.
 # CMA CGM then emails a receipt for each to the Email(s) given.
 #
-# Written against the local version (make portals), which copies the real page from
-# screenshots. The selectors are the ones the screenshots show: the placeholders,
-# the labels, and the invoice grid, which looks like Handsontable (its cells take
-# a click, typing and Enter, one at a time). So most steps should carry over. The
-# Submit button and the page after it weren't in the screenshots: those two steps
-# fit the local page only. sops/local/README.md has what's still to check.
+# The selectors are the real page's own, from its HTML (2026-10-14): the field ids,
+# the Handsontable invoice grid (#invoice_table, whose cells take a click, typing
+# and Enter, one at a time), the privacy policy tick (#accept_tc), Submit
+# (#submit_rtgs) and the "Submitted Successfully" page with its request reference.
+# The local version (make portals) copies that page, and this SOP is proven
+# against it. Pointed at the real site it would confirm a real payment: run it
+# there only with a real UTR, and only on purpose.
 #
 # Params, built by app/portal_params.py (steps cma_rtgs_shipment_payment and
 # cma_rtgs_security_deposit):
@@ -29,31 +30,32 @@
 #   invoice_no        job: DO invoice no.; empty for the security deposit
 #   bl_no             job: Master B/L no.
 #
-# Reads back: cma_rtgs_request_ref
+# Reads back: cma_rtgs_request_ref (the request reference the page gives)
 metadata:
-  name: "Local CMA CGM RTGS - New Request"
-  version: "0.2"
+  name: "CMA CGM RTGS - New Request"
+  version: "0.3"
 
 steps:
   - action: goto
-    description: Open the RTGS Confirmation page
+    description: Open the RTGS Confirmation page for CMA CGM
     method: playwright
-    url: "{params.cma_rtgs_url}/index.php/Finance/RTGS/NewRequest/"
+    url: "{params.cma_rtgs_url}/index.php/Finance/RTGS/NewRequest?shipcomp_code=0001"
     wait_for: domcontentloaded
 
   - action: wait_for_selector
-    description: Wait for the form
+    description: Wait for the invoice grid, the last part of the page to be built
     method: playwright
-    selector: "input[placeholder='Company Name']"
+    selector: "#invoice_table .ht_master .htCore tbody tr"
 
-  # The same page serves CMA CGM's other lines (Change Carrier). Never file
-  # CMA CGM's payment against another carrier.
+  # The same page serves ANL (Change Carrier). Never confirm CMA CGM's payment
+  # under another carrier.
   - action: execute_script
     description: Make sure the page is CMA CGM's
     method: playwright
     script: |
       () => {
-        if (!document.body.innerText.includes('RTGS Confirmation (CMA CGM)')) {
+        const code = document.querySelector('#shipcomp_code');
+        if (!code || code.value !== '0001') {
           throw new Error('This is not the CMA CGM RTGS page: choose CMA CGM under Change Carrier');
         }
       }
@@ -61,68 +63,68 @@ steps:
   - action: fill
     description: Enter the company name
     method: playwright
-    selector: "input[placeholder='Company Name']"
+    selector: "#company_name"
     value_from: params.company_name
-
-  - action: fill
-    description: Enter the contact number
-    method: playwright
-    selector: "input[placeholder='Contact Number']"
-    value_from: params.contact_number
 
   - action: fill
     description: Enter the contact name
     method: playwright
-    selector: "input[placeholder='Contact Name']"
+    selector: "#contact_name"
     value_from: params.contact_name
+
+  - action: fill
+    description: Enter the contact number
+    method: playwright
+    selector: "#contact_number"
+    value_from: params.contact_number
 
   - action: fill
     description: Enter the emails the receipt goes to
     method: playwright
-    selector: "input[placeholder='Email']"
+    selector: "#contact_email"
     value_from: params.emails
 
   - action: fill
     description: Enter the UTR number
     method: playwright
-    selector: "input[placeholder='UTR Number']"
+    selector: "#utr_number"
     value_from: params.utr
 
   - action: fill
     description: Enter the bank account the payment came from
     method: playwright
-    selector: "input[placeholder='Your Bank A/C Number']"
+    selector: "#bank_account_number"
     value_from: params.bank_account
+
+  - action: fill
+    description: Enter the date of transfer
+    method: playwright
+    selector: "#transfer_date"
+    value_from: params.transfer_date
+
+  # The field opens a date picker under it, over the top of the invoice grid.
+  - action: press
+    description: Close the date picker
+    method: playwright
+    selector: "#transfer_date"
+    key: Escape
 
   - action: execute_script
     description: Choose INR as the currency
     method: playwright
     script: |
       () => {
-        const select = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.text.includes('INR')));
-        if (!select) throw new Error('The page has no currency list with INR');
-        select.value = [...select.options].find((o) => o.text.includes('INR')).value;
+        const select = document.querySelector('#currency');
+        select.value = 'INR';
+        if (select.value !== 'INR') throw new Error('The page has no INR currency');
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
   - action: fill
     description: Enter the amount transferred
     method: playwright
-    selector: "input[placeholder='Amount Transfered']"
+    selector: "#amount_transfered"
     value_from: params.amount
-
-  - action: fill
-    description: Enter the date of transfer
-    method: playwright
-    selector: "xpath=//*[contains(text(), 'Date of Transfer')]/following::input[1]"
-    value_from: params.transfer_date
-
-  # Closes a date picker that opened on the field, so it can't cover the grid.
-  - action: press
-    description: Close the date picker
-    method: playwright
-    selector: "xpath=//*[contains(text(), 'Date of Transfer')]/following::input[1]"
-    key: Escape
 
   # Row 1 of the invoice grid. Its columns: Security Deposit, Invoice Number,
   # BL Number, Amount, Remarks. Each cell takes a click, the value, then Enter.
@@ -130,13 +132,13 @@ steps:
     description: Tick Security Deposit on row 1
     method: playwright
     condition: params.security_deposit
-    selector: ".ht_master .htCore tbody tr:nth-child(1) input.htCheckboxRendererInput"
+    selector: "#invoice_table .ht_master .htCore tbody tr:nth-child(1) input.htCheckboxRendererInput"
 
   - action: type
     description: Enter the invoice number on row 1
     method: playwright
     condition: params.invoice_no
-    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(2)"
+    selector: "#invoice_table .ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(2)"
     value_from: params.invoice_no
     delay: 40
 
@@ -149,7 +151,7 @@ steps:
   - action: type
     description: Enter the BL number on row 1
     method: playwright
-    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(3)"
+    selector: "#invoice_table .ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(3)"
     value_from: params.bl_no
     delay: 40
 
@@ -161,7 +163,7 @@ steps:
   - action: type
     description: Enter the amount on row 1
     method: playwright
-    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(4)"
+    selector: "#invoice_table .ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(4)"
     value_from: params.amount
     delay: 40
 
@@ -181,7 +183,7 @@ steps:
       amount: params.amount
     script: |
       ({ security_deposit, invoice_no, bl_no, amount }) => {
-        const row = document.querySelector('.ht_master .htCore tbody tr:nth-child(1)');
+        const row = document.querySelector('#invoice_table .ht_master .htCore tbody tr:nth-child(1)');
         const cell = (n) => row.querySelector(`td:nth-of-type(${n})`).textContent.trim();
         const ticked = row.querySelector('input.htCheckboxRendererInput').checked;
         const wrong = [];
@@ -192,30 +194,41 @@ steps:
         if (wrong.length) throw new Error(`Row 1 of the invoice grid is wrong: ${wrong.join('; ')}`);
       }
 
-  # From here on, the local page only: the screenshots stop above the Submit
-  # button. The submit and the check are separate steps, since the agent retries
-  # a failed step and only the check is safe to repeat.
+  - action: execute_script
+    description: Accept the privacy policy
+    method: playwright
+    script: |
+      () => {
+        const accept = document.querySelector('#accept_tc');
+        if (!accept.checked) accept.click();
+      }
+
+  # The submit and the check are separate steps, since the agent retries a failed
+  # step and only the check is safe to repeat.
   - action: click
     description: Submit
     method: playwright
-    selector: "button:text-is('Submit')"
+    selector: "#submit_rtgs"
 
+  # Either the page that confirms the request, or the page's own error messages:
+  # its form checks in span.form-error, a server message in #infoMessage.
   - action: wait_for_selector
-    description: Wait for the site's answer
+    description: Wait for the page's answer
     method: playwright
-    selector: "#outcome"
+    selector: "xpath=//*[contains(text(), 'Submitted Successfully')] | //span[contains(@class, 'form-error')] | //*[@id='infoMessage']//*[contains(@class, 'alert')]"
 
   - action: execute_script
-    description: Read the request number the site gave
+    description: Read the request reference the page gave
     method: playwright
     extract_result: true
     script: |
       () => {
-        const outcome = document.querySelector('#outcome');
-        if (outcome.dataset.status !== 'accepted') {
-          throw new Error(`The RTGS page turned the payment down: ${outcome.dataset.message}`);
-        }
-        return { cma_rtgs_request_ref: outcome.dataset.reference };
+        const errors = [...document.querySelectorAll('span.form-error, #infoMessage .alert')]
+          .map((e) => e.textContent.trim()).filter(Boolean);
+        if (errors.length) throw new Error(`The RTGS page didn't take the payment: ${errors.join(' ')}`);
+        const found = document.body.innerText.match(/Request Reference\s+(\d+)/);
+        if (!found) throw new Error('The RTGS page gave no request reference');
+        return { cma_rtgs_request_ref: found[1] };
       }
 
   - action: end
