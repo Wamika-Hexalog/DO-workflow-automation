@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from . import forms, pages
 from .pages import esc
-from .settings import default_login, odex_login
+from .settings import odex_login
 from .store import Store, next_ref, now
 
 router = APIRouter(prefix="/odex")
@@ -115,10 +115,6 @@ def root(request: Request) -> Response:
 
 @router.get("/login")
 def login_page(next_page: str = Query("/odex/home", alias="next"), failed: bool = False) -> Response:
-    hint = ""
-    if default_login():
-        username, password = odex_login()
-        hint = f'<p class="hint">Local demo login: <code>{esc(username)}</code> / <code>{esc(password)}</code></p>'
     error = '<p class="error" id="login-error">Wrong username or password.</p>' if failed else ""
     body = f"""<div class="card" style="max-width:400px;margin:32px auto">
 <h1>Log in</h1>{error}
@@ -127,7 +123,7 @@ def login_page(next_page: str = Query("/odex/home", alias="next"), failed: bool 
 {pages.field("username", "Username")}
 {pages.field("password", "Password", type="password")}
 <div class="actions"><button class="btn primary" id="login" type="submit">Log in</button></div>
-</form>{hint}</div>"""
+</form></div>"""
     return pages.page("Log in", body, site="odex")
 
 
@@ -194,7 +190,7 @@ def deposits(request: Request) -> Response:
     body = f"""<h1>Deposit and Refund</h1><p class="path">Counter Process → Deposit and Refund</p>
 <p><a class="btn primary" id="new-deposit" href="{DEPOSITS}/new">New Deposit</a></p>
 {pages.table("deposits", ["Ref no.", "B/L no.", "Amount (Rs.)", "UTR", "Refund to", "Status", "Slip", "Submitted"], rows, "No deposits yet.")}
-<p class="hint">Once CMA CGM approves a deposit, its Security Deposit Acknowledgement Slip can be downloaded here. Refund requests aren't part of this demo.</p>"""
+<p class="hint">Once CMA CGM approves a deposit, its Security Deposit Acknowledgement Slip can be downloaded here. Refund requests aren't built yet.</p>"""
     return _page("Deposit and Refund", body, user)
 
 

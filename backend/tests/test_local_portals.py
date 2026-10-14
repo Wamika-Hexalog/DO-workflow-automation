@@ -323,7 +323,7 @@ def test_reset_empties_the_portals(web):
 
 def test_every_page_opens_with_no_demo_banner(web):
     pages = [
-        "/", "/control", "/odex/home", "/odex/epayment?location=NCR", INVOICES, f"{INVOICES}/new",
+        "/", "/control", "/odex/login", "/odex/home", "/odex/epayment?location=NCR", INVOICES, f"{INVOICES}/new",
         f"{BL_STATUS}?bl_no={MBL}", DEPOSITS, f"{DEPOSITS}/new", DO_REQUESTS, f"{DO_REQUESTS}/new", RTGS,
     ]
     for path in pages:
