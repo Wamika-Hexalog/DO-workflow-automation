@@ -1,6 +1,6 @@
 """Page layout shared by the local portals: plain server-rendered HTML, as the real
 portals are. The portals listen only on this machine (make portals binds 127.0.0.1),
-and the documents they hand out are watermarked LOCAL DEMO."""
+and the documents they hand out carry DEMO in their numbers (INV-DEMO-…)."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence

@@ -2,7 +2,8 @@
 the DO invoice, CMA CGM's two receipts, ODeX's security deposit slip and the eDO.
 
 Each carries the B/L numbers as text, so the DO folder's checks match them like
-the real ones, and each is watermarked as a local demo: none of them is real.
+the real ones. Their own numbers carry DEMO (INV-DEMO-…, RCPT-DEMO-…, EDO-DEMO-…),
+so none can pass for a real document.
 """
 from __future__ import annotations
 
@@ -18,42 +19,18 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import Flowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-PAGE_W, PAGE_H = A4
-
 BODY = ParagraphStyle("body", fontName="Helvetica", fontSize=10, leading=13.5)
 SMALL = ParagraphStyle("small", parent=BODY, fontSize=8.5, leading=11)
 TITLE = ParagraphStyle("title", parent=BODY, fontName="Helvetica-Bold", fontSize=15, leading=19, alignment=TA_CENTER)
-SUBTITLE = ParagraphStyle("subtitle", parent=SMALL, alignment=TA_CENTER, textColor=colors.HexColor("#59636e"))
-
-
-def _decorate(canvas, doc) -> None:
-    """The watermark and footer on every page: these documents are not real."""
-    canvas.saveState()
-    canvas.setFillColor(colors.Color(0.8, 0.1, 0.1, alpha=0.12))
-    canvas.setFont("Helvetica-Bold", 64)
-    canvas.translate(PAGE_W / 2, PAGE_H / 2)
-    canvas.rotate(35)
-    canvas.drawCentredString(0, 0, "LOCAL DEMO")
-    canvas.restoreState()
-    canvas.saveState()
-    canvas.setFont("Helvetica", 7.5)
-    canvas.setFillColor(colors.HexColor("#59636e"))
-    canvas.drawCentredString(
-        PAGE_W / 2,
-        12 * mm,
-        f"Made by the local demo portals on {date.today():%d-%b-%Y}. Not a real document: "
-        "not issued by CMA CGM, ODeX or any bank.",
-    )
-    canvas.restoreState()
 
 
 def _pdf(story: Sequence[Flowable], title: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=18 * mm, bottomMargin=22 * mm,
-        title=title, author="Local demo portals",
+        title=title,
     )
-    doc.build(list(story), onFirstPage=_decorate, onLaterPages=_decorate)
+    doc.build(list(story))
     return buffer.getvalue()
 
 
@@ -167,10 +144,10 @@ def invoice_pdf(
     charges.setStyle(TableStyle([("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9.5)]))
     story = [
         _p("TAX INVOICE: DELIVERY ORDER", TITLE),
-        _p(f"{_e(liner)} · local demo", SUBTITLE),
         Spacer(0, 8 * mm),
         _pairs([
             ("Invoice no.", invoice_no),
+            ("Liner", liner),
             ("Date", day(on)),
             ("B/L no.", bl_no),
             ("Containers", ", ".join(containers) or "As per IGM"),
@@ -200,7 +177,6 @@ def receipt_pdf(
     rows += [[invoice_no or "-", bl_no, f"{money(amount)} INR", f"{money(amount)} INR"] for invoice_no, bl_no, amount in lines]
     story = [
         _p(_e(kind.upper()), TITLE),
-        _p("As CMA CGM would issue it · local demo", SUBTITLE),
         Spacer(0, 8 * mm),
         _pairs([
             ("Receipt no.", receipt_no),
@@ -227,7 +203,6 @@ def deposit_slip_pdf(
     """ODeX's Security Deposit Acknowledgement Slip, once the deposit is approved."""
     story = [
         _p("Security Deposit Acknowledgement Slip", TITLE),
-        _p("As ODeX shows it · local demo", SUBTITLE),
         Spacer(0, 8 * mm),
         _pairs([("Ref no.", ref), ("Date", day(on)), ("From M/s", account)]),
         Spacer(0, 5 * mm),
@@ -266,10 +241,11 @@ def edo_pdf(
     """The delivery order, issued against an ODeX DO request."""
     story = [
         _p("DELIVERY ORDER", TITLE),
-        _p(f"{_e(do_type)} · {_e(liner)} · local demo", SUBTITLE),
         Spacer(0, 8 * mm),
         _pairs([
             ("DO no.", edo_no),
+            ("DO type", do_type),
+            ("Liner", liner),
             ("Date", day(on)),
             ("Valid till", day(valid_till)),
             ("B/L no.", bl_no),
