@@ -4,6 +4,8 @@ The CMA CGM DO process uses two websites: ODeX, and CMA CGM's RTGS payments page
 
 The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fields, checks and messages, and the same page after Submit. So the RTGS SOP uses the real page's selectors.
 
+The local ODeX's login is the real ODeX India login page: its screenshot (`make odex-login-screen` takes it, without typing anything), with live fields under the real ids, and the real page's script. It draws and checks the captcha the same way, then asks for the company, and asks before closing another session of the same login. So the SOPs' login steps are the real ones.
+
 The local ODeX shows the team's step-by-step guide, "Delivery Order Request-First step 1": each page is the guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guide in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. The steps the guide doesn't reach yet (the deposit and the DO request) are plain pages that follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx`. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
@@ -19,7 +21,7 @@ Between steps, play CMA CGM on the control panel at http://127.0.0.1:8100/contro
 
 `make demo-local` runs the app, the Inngest dev server and the portals together. With it, approving a DO request in the app raises it on the local ODeX, in a visible browser.
 
-ODeX login: `hexalog-demo` / `local-demo-only`, from `LOCAL_ODEX_USERNAME` and `LOCAL_ODEX_PASSWORD` (`app/config.py`). It's not a secret: the portal only runs on this machine.
+ODeX login: `hexalog-demo` / `local-demo-only`, from `LOCAL_ODEX_USERNAME` and `LOCAL_ODEX_PASSWORD` (`app/config.py`). It's not a secret: the portal only runs on this machine. Type the captcha as shown (it's case-sensitive), then choose the company, `LOCAL_ODEX_ACCOUNT`, and Confirm Sign In. Like the real ODeX, a browser that has signed in with the User ID isn't asked for the captcha again for 30 days.
 
 ## The steps and their data
 
@@ -146,7 +148,7 @@ For now ops type these values in. Once the Graph subscription's emails are read,
 ## How the SOPs are written
 
 - Each SOP has a header comment listing its params and where each one comes from.
-- Each ODeX SOP logs in from the credentials block, then goes through the menus as a person would.
+- Each ODeX SOP logs in from the credentials block, then goes through the menus as a person would. The login is the real one's: User ID, password, the captcha (the local ODeX puts its answer on the page, in `data-answer`; the real one needs a person), Sign in, then the company and Confirm Sign In. If the login is signed in somewhere else, ODeX asks in a dialog whether to close that session. The agent accepts every dialog, so it says OK.
 - Drop-downs are set by an `execute_script` step with `script_args`. Values are passed as arguments and are never pasted into the script.
 - The RTGS page's invoice grid is Handsontable (0.28 on the real page). It's filled the way a person fills it: click the cell, type the value, press Enter, one cell at a time.
 - A submit and the check of its answer are separate steps. The agent retries a failed step up to three times, and only the check is safe to repeat. The check reads the portal's answer (`#outcome` on the local sites). If the portal turned the form down, the check throws, and the run fails with the portal's own message.
@@ -171,7 +173,12 @@ The params, the data behind them and the workflows stay the same.
 What's still missing for the real SOPs:
 
 1. **The real ODeX pages' HTML.** The guide's screenshots show what the invoice steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had. The guide also stops at the invoice: the deposit and the DO request still need screenshots or a walk-through.
-2. **ODeX login.** A test login, and whether login asks for an OTP or a captcha.
+2. **ODeX login.** The real login page is known: User ID, password and a picture captcha (no OTP), then the company, then Confirm Sign In. The local ODeX copies it. Still needed:
+   - A test login.
+   - Someone to type the captcha: a step where the run waits for a person. ODeX doesn't ask a browser that has signed in with that User ID in the last 30 days, but the agent starts a fresh browser each run, so it is always asked.
+   - Whether Hexalog's login has one company or several (the SOPs pick the only one, and stop if there are more), and whether it also asks for a location.
+   - The company step's look: it only shows after a real sign-in, so the local one is built from ODeX's script and stylesheet. A screenshot of it would settle it. So would the message for a wrong password, which hasn't been seen.
+   - One session per login: when the agent signs in, ODeX signs out anyone else using the same login. Ops may want the agent to have its own login.
 3. **A first real RTGS confirmation.** The RTGS SOP has the real page's selectors but has only run on the local page. Its first real run should be with a real payment, watched. Also: the real page's answer when it turns a request down on the server (a UTR entered twice, say) hasn't been seen.
 4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? On ODeX the app enters the full amount for each house B/L for now. On the RTGS page it confirms one deposit against the MBL, as in the screenshot.
 5. **The JSR NOC.** Confirm that `NOC (5).docx` is the "JSR NOC" the SOP sheet asks for on the deposit. It is Hexalog's no-objection to refunding JSR, and the app now writes it.

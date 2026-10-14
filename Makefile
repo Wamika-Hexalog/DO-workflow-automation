@@ -1,4 +1,4 @@
-.PHONY: setup assets api web inngest dev serve demo test test-browser try-agent portals portal-step demo-local
+.PHONY: setup assets odex-login-screen api web inngest dev serve demo test test-browser try-agent portals portal-step demo-local
 
 # uv installs Python 3.12 (backend/.python-version) and every backend package;
 # npm installs the UI and the Inngest dev server (pinned in frontend/package.json).
@@ -64,3 +64,9 @@ demo-local:
 # Stamps, bonds and letterhead artwork, built from the Docs folder the team shared.
 assets:
 	cd backend && uv run python scripts/prepare_assets.py ../Docs
+
+# The local ODeX's login page is a screenshot of the real one, as anyone sees it
+# before signing in: this takes it again (nothing is typed or sent) and says if
+# ODeX has moved any of its fields.
+odex-login-screen:
+	cd backend && uv run python scripts/capture_odex_login.py

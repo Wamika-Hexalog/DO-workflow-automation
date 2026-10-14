@@ -3,6 +3,8 @@ Request-First step 1.docx"). Each is the guide's screenshot, with live elements 
 only the buttons and fields the process uses; the rest is just the picture.
 
     guide step  page                    live over the picture
+    (login)     login                   User ID, password, captcha and its refresh, Sign in and
+                                        Reset; then the company and Confirm Sign In
     1-2         services (home)         ePayment's location and its arrow; Counter Process's arrow
     3, 6        ePayment's main page    Requests → Liner Requests; the EDO DETAILS search
     4           Liner Requests          Request New Invoice; our requests, over the picture's rows
@@ -12,25 +14,28 @@ only the buttons and fields the process uses; the rest is just the picture.
     9-10        View Invoice Request    the invoice's number, date, amount and status, and its PDF
 
 The screenshots show a real ODeX account, so they stay out of git: `make assets` takes
-them from the guide into assets/private/odex/. Without them each page shows a grey
-stand-in of the same shape, and every live element still works, so the SOPs and the
-tests run anywhere. Live elements sit at the screenshot's own pixel coordinates (see
+them from the guide into assets/private/odex/. The guide has no login page, so its
+screenshot is the real login page as anyone sees it (make odex-login-screen). Without
+them each page shows a grey stand-in of the same shape, and every live element still
+works, so the SOPs and the tests run anywhere. Live elements sit at the screenshot's own pixel coordinates (see
 Screen.at): a new screenshot needs its coordinates measured again.
 """
 from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from . import forms, pages
-from .odex import current_user, store_of, to_login
+from .odex import COOKIE, current_user, signed_in, store_of, to_login
 from .pages import esc
+from .settings import ACCOUNT_NAME, odex_login
 from .store import next_ref, now
 
 router = APIRouter(prefix="/odex")
@@ -70,13 +75,43 @@ class Screen:
         return f"left:{x0 / w:.4%};top:{y0 / h:.4%};width:{(x1 - x0) / w:.4%};height:{(y1 - y0) / h:.4%}"
 
 
+LOGIN = Screen("login.png", 1430, 760, 15)
 SERVICES = Screen("service.png", 1430, 683, 15)
 DASHBOARD = Screen("dashboard.png", 1429, 708, 17)
 REQUESTS_LIST = Screen("liner-requests.png", 1430, 623, 13.5)
 NEW_INVOICE = Screen("new-invoice.png", 1918, 850, 17.5)
 STATUS = Screen("bl-status.png", 1430, 688, 13)
 VIEW_INVOICE = Screen("view-invoice.png", 1897, 955, 17.5)
-SCREENS = {s.file: s for s in (SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE)}
+SCREENS = {s.file: s for s in (LOGIN, SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE)}
+
+# The real login page's parts, by their ids there, and where they sit on its
+# screenshot. The live ones take the same ids and places, so the SOPs' login steps
+# are the real page's. `make odex-login-screen` checks nothing has moved.
+LOGIN_FIELDS = {
+    "#loginId": (91, 380, 349, 420),
+    "#password": (91, 430, 349, 470),
+    "#valicode": (92, 481, 242, 511),  # the captcha's picture, a canvas
+    "#toggle": (321, 489, 351, 519),  # its refresh icon
+    "#valiIpt": (102, 517, 330, 543),
+    "#signIn": (108, 560, 211, 599),
+    "#reset": (228, 560, 331, 599),
+}
+LOGIN_CAPTCHA = (91, 480, 346, 550)  # the captcha's grey box
+LOGIN_MESSAGE = (91, 370, 349, 390)  # #invDivMsg, just above the User ID
+LOGIN_HEADER = (70, 304, 370, 370)  # "SIGN IN NOW"
+LOGIN_BOX = (71, 370, 369, 613)  # the white box under it, down to the links
+# The companies the login offers after the password, and how long ODeX waits for one.
+COMPANIES = (ACCOUNT_NAME,)
+PENDING_MINUTES = 10
+# What the login page says when it won't let you in: the real page's words, but for
+# a wrong password, whose message hasn't been seen.
+LOGIN_ERRORS = {
+    "user": "Please Enter User ID",
+    "password": "Please Enter Password",
+    "wrong-login": "Invalid User ID or Password",
+    "company": "Please select Company",
+}
+OTHER_SESSION = "You are already logged in another session. Do you wish to close that session and proceed further?"
 
 _STYLE = """
 main { max-width:none; padding:0; }
@@ -140,8 +175,10 @@ def _shot(request: Request, screen: Screen, live: str, **attrs: str) -> str:
     )
 
 
-def _page(title: str, body: str, *, script: str = "", status_code: int = 200) -> Response:
-    return pages.page(title, body, site="odex", header=False, style=_STYLE, script=_CLICKS + script, status_code=status_code)
+def _page(title: str, body: str, *, script: str = "", style: str = "", status_code: int = 200) -> Response:
+    return pages.page(
+        title, body, site="odex", header=False, style=_STYLE + style, script=_CLICKS + script, status_code=status_code
+    )
 
 
 def _options(values: tuple[str, ...], chosen: str, placeholder: str = "Select") -> str:
@@ -168,6 +205,312 @@ def _location(request: Request) -> str:
 def _latest_request(data: dict[str, Any], bl_no: str) -> dict[str, Any] | None:
     found = [r for r in data["invoice_requests"] if r["bl_no"] == bl_no]
     return dict(found[-1]) if found else None
+
+
+# The login ---------------------------------------------------------------------
+
+# The real login page's look, from its stylesheet. Its box is 90% opaque, which is
+# where the greys come from. --px is one pixel of the screenshot.
+_LOGIN_STYLE = """
+.shot { --px:calc(100cqw / var(--w)); }
+.underlined { background-color:#fff; background-repeat:no-repeat;
+  background-image:linear-gradient(#b1b1b1,#b1b1b1),linear-gradient(#b1b1b1,#b1b1b1),linear-gradient(#b1b1b1,#b1b1b1);
+  background-size:100% max(1px,var(--px)),max(1px,var(--px)) calc(3 * var(--px)),max(1px,var(--px)) calc(3 * var(--px));
+  background-position:left bottom,left bottom,right bottom; }
+.login-input { position:absolute; box-sizing:border-box; margin:0; border:0; border-radius:0; outline:0;
+  font-family:Roboto,Arial,Helvetica,sans-serif; font-size:calc(12 * var(--px)); color:#474747;
+  padding:calc(5 * var(--px)) calc(8 * var(--px)) calc(6 * var(--px)); }
+.login-input::placeholder { color:#a3a3a3; opacity:1; }
+#valiIpt { background:#fff; border:max(1px,var(--px)) solid #848484; padding:var(--px) calc(2 * var(--px)); }
+#valiIpt::placeholder { color:#838383; }
+#valiIpt:focus { outline:auto; }
+#invDivMsg { font-family:Roboto,Arial,Helvetica,sans-serif; color:#ff1a1a; font-size:calc(14 * var(--px));
+  line-height:calc(20 * var(--px)); white-space:nowrap; }
+.login #invDivMsg { position:absolute; z-index:2; pointer-events:none; }
+#capt-cover { display:none; background:#fff; }
+.login.remembered #capt-cover { display:block; }
+.login.remembered .captcha-part { display:none; }
+#welcome { background:#828282; color:#fff; font-family:Roboto,Arial,Helvetica,sans-serif; font-weight:700;
+  font-size:calc(24 * var(--px)); text-transform:uppercase;
+  border-radius:calc(10 * var(--px)) calc(10 * var(--px)) 0 0; display:flex; align-items:center; justify-content:center; }
+.company-step { background:#fff; padding:calc(10 * var(--px)) calc(20 * var(--px));
+  font-family:Roboto,Arial,Helvetica,sans-serif; font-size:calc(14 * var(--px)); color:#474747; }
+#loginIdLabel { height:calc(25 * var(--px)); box-sizing:border-box; overflow:hidden; line-height:calc(15 * var(--px));
+  padding:calc(4 * var(--px)) calc(3 * var(--px)) calc(6 * var(--px)) calc(8 * var(--px)); }
+#compName { display:block; width:100%; box-sizing:border-box; margin-top:calc(15 * var(--px)); height:calc(25 * var(--px));
+  padding:0 calc(26 * var(--px)) 0 calc(8 * var(--px)); border:max(1px,var(--px)) solid #aaa;
+  border-radius:calc(5 * var(--px)); font:inherit; font-size:calc(13 * var(--px)); color:#444; cursor:pointer;
+  appearance:none; box-shadow:inset 0 0 3px #fff,0 1px 1px rgba(0,0,0,.1);
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0h10L5 6z' fill='%23444'/%3E%3C/svg%3E")
+    right calc(9 * var(--px)) center / calc(9 * var(--px)) auto no-repeat,
+    linear-gradient(#fff 20%,#f6f6f6 50%,#eee 52%,#f4f4f4 100%); }
+.company-buttons { display:flex; align-items:flex-start; gap:calc(15 * var(--px)); margin-top:calc(20 * var(--px));
+  padding-left:calc(15 * var(--px)); }
+.company-buttons button { width:40%; border:0; border-radius:0; cursor:pointer; color:#fff; background:#575757;
+  font:inherit; line-height:calc(18.67 * var(--px)); padding:calc(10 * var(--px)) calc(16 * var(--px)); }
+.company-buttons #reset { background:#f95454; }
+"""
+
+# The real page's own script, nearly line for line: it draws the captcha, checks it
+# and the empty fields before anything is sent, and remembers the User ID for 30
+# days, after which that user isn't asked for the captcha. The local page adds one
+# thing: the captcha's answer on its canvas (data-answer), for the local SOPs.
+_LOGIN_SCRIPT = """
+const CHARACTERS = 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,#,0,1,2,3,4,5,6,7,8,9,@,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,z,y,z,$'.split(',');
+const form = document.getElementById('loginForm');
+const message = document.getElementById('invDivMsg');
+const loginId = document.getElementById('loginId');
+let rightCode = '';
+let cookieValueSplit = '';
+
+function getImgValiCode() {
+  const canvas = document.getElementById('valicode');
+  const context = canvas.getContext('2d');
+  const random = (n) => Math.random() * n;
+  const colour = () => `rgb(${Math.floor(random(256))},${Math.floor(random(256))},${Math.floor(random(256))})`;
+  canvas.width = 150;
+  canvas.height = 30;
+  context.fillStyle = '#9b9b9b';  // over the screenshot's own captcha
+  context.fillRect(0, 0, 150, 30);
+  const shown = [];
+  for (let i = 0; i <= 6; i++) {
+    const text = CHARACTERS[Math.floor(random(CHARACTERS.length))];
+    const angle = (random(30) * Math.PI) / 180;
+    const x = 10 + i * 20;
+    const y = 20 + random(8);
+    shown.push(text);
+    context.font = 'bold 23px Roboto';
+    context.translate(x, y);
+    context.rotate(angle);
+    context.fillStyle = '#fff';
+    context.fillText(text, 0, 0);
+    context.rotate(-angle);
+    context.translate(-x, -y);
+  }
+  for (let i = 0; i <= 1; i++) {
+    context.strokeStyle = colour();
+    context.beginPath();
+    context.moveTo(random(150), random(30));
+    context.lineTo(random(150), random(30));
+    context.stroke();
+  }
+  for (let i = 0; i < 5; i++) {
+    const x = random(150);
+    const y = random(30);
+    context.strokeStyle = colour();
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + 1, y + 1);
+    context.stroke();
+  }
+  rightCode = shown.join('');
+  canvas.dataset.answer = rightCode;
+}
+
+function showHideCaptchaByCookieLoginId() {
+  for (const cookie of document.cookie.split(';')) {
+    const [name, value] = cookie.split('=');
+    if (name.trim() === 'loginIdScript') cookieValueSplit = decodeURIComponent(value || '');
+  }
+  form.classList.toggle('remembered', loginId.value !== '' && loginId.value === cookieValueSplit);
+}
+
+function validateFields() {
+  const password = document.getElementById('password').value;
+  const valiIpt = document.getElementById('valiIpt');
+  const remembered = loginId.value === cookieValueSplit;
+  message.textContent = '';
+  if (loginId.value === '') {
+    message.textContent = 'Please Enter User ID';
+  } else if (password === '') {
+    message.textContent = 'Please Enter Password';
+  } else if (valiIpt.value === '' && !remembered) {
+    message.textContent = 'Please Enter Captcha';
+  } else if (valiIpt.value !== rightCode && !remembered) {
+    message.textContent = 'Please Enter Correct Captcha';
+    valiIpt.value = '';
+    getImgValiCode();
+  } else {
+    return true;
+  }
+  return false;
+}
+
+loginId.addEventListener('focus', () => { loginId.value = ''; });
+loginId.addEventListener('change', showHideCaptchaByCookieLoginId);
+document.getElementById('toggle').addEventListener('click', getImgValiCode);
+document.getElementById('reset').addEventListener('click', () => { location.href = form.dataset.reset; });
+form.addEventListener('submit', (event) => {
+  if (!validateFields()) {
+    event.preventDefault();
+    return;
+  }
+  if (cookieValueSplit !== loginId.value) {
+    document.cookie = `loginIdScript=${encodeURIComponent(loginId.value)}; max-age=${30 * 24 * 3600}; path=/odex; samesite=lax`;
+  }
+});
+getImgValiCode();
+"""
+
+# The company step's script: the company has to be chosen, and if the login is signed
+# in elsewhere, ODeX asks whether to close that session (OK) or start again.
+_COMPANY_SCRIPT = """
+const form = document.getElementById('loginForm');
+const message = document.getElementById('invDivMsg');
+form.addEventListener('submit', (event) => {
+  message.textContent = '';
+  if (!document.getElementById('compName').value) {
+    event.preventDefault();
+    message.textContent = 'Please select Company';
+  }
+});
+document.getElementById('reset').addEventListener('click', () => { location.href = form.dataset.reset; });
+if (form.dataset.otherSession) {
+  if (confirm(form.dataset.otherSession)) {
+    form.elements.closeOthers.value = '1';
+    form.submit();
+  } else {
+    location.href = form.dataset.reset;
+  }
+}
+"""
+
+
+def _after_login(target: str) -> str:
+    """Where to go once signed in: ODeX's own pages only, never back to the login."""
+    return target if target.startswith("/odex/") and not target.startswith("/odex/log") else HOME
+
+
+def _pending(request: Request) -> tuple[str, dict[str, Any] | None]:
+    """This browser's session, while it has given the password but not the company."""
+    token = request.cookies.get(COOKIE, "")
+    cutoff = (datetime.now() - timedelta(minutes=PENDING_MINUTES)).isoformat(timespec="seconds")
+    with store_of(request).read() as data:
+        session = data["sessions"].get(token)
+    if isinstance(session, dict) and not session["company"] and session["at"] > cutoff:
+        return token, session
+    return token, None
+
+
+@router.get("/login")
+def login_page(request: Request, next_page: str = Query(HOME, alias="next"), error: str = "") -> Response:
+    s, field = LOGIN, LOGIN_FIELDS
+    target = _after_login(next_page)
+    reset = f"/odex/login/reset?next={quote(target)}"
+    live = f"""<form id="loginForm" name="loginForm" class="login" action="/odex/login" method="post" autocomplete="off" data-reset="{esc(reset)}">
+<input type="hidden" name="next" value="{esc(target)}">
+<div id="invDivMsg" style="{s.at(*LOGIN_MESSAGE)}">{esc(LOGIN_ERRORS.get(error, ""))}</div>
+<input id="loginId" name="loginId" class="login-input underlined" placeholder="User ID" autocomplete="off" style="{s.at(*field["#loginId"])}">
+<input id="password" name="password" type="password" class="login-input underlined" placeholder="Password" autocomplete="off" style="{s.at(*field["#password"])}">
+<div id="capt-cover" class="live" style="{s.at(*LOGIN_CAPTCHA)}"></div>
+<canvas id="valicode" class="live captcha-part" width="150" height="30" style="{s.at(*field["#valicode"])}"></canvas>
+<button id="toggle" class="live hot captcha-part" type="button" title="Another captcha" style="{s.at(*field["#toggle"])}"></button>
+<input id="valiIpt" name="valiIpt" class="login-input captcha-part" placeholder="Please enter captcha code" autocomplete="off" style="{s.at(*field["#valiIpt"])}">
+<button id="signIn" class="live hot" type="submit" title="Sign in" style="{s.at(*field["#signIn"])}"></button>
+<button id="reset" class="live hot" type="reset" title="Reset" style="{s.at(*field["#reset"])}"></button>
+</form>"""
+    return _page("ODeX India", _shot(request, s, live), script=_LOGIN_SCRIPT, style=_LOGIN_STYLE)
+
+
+@router.post("/login")
+async def login(request: Request) -> Response:
+    form = await request.form()
+    target = _after_login(forms.text(form, "next"))
+    login_id = forms.text(form, "loginId")
+    password = str(form.get("password") or "")
+    username, expected = odex_login()
+    # The captcha is checked on the page, as ODeX's own is.
+    if not login_id:
+        error = "user"
+    elif not password:
+        error = "password"
+    elif not (
+        secrets.compare_digest(login_id.encode(), username.encode())
+        and secrets.compare_digest(password.encode(), expected.encode())
+    ):
+        error = "wrong-login"
+    else:
+        error = ""
+    if error:
+        return RedirectResponse(f"/odex/login?error={error}&next={quote(target)}", status_code=303)
+    # Through the first step: ODeX asks for the company next.
+    token = secrets.token_urlsafe(24)
+    cutoff = (datetime.now() - timedelta(minutes=PENDING_MINUTES)).isoformat(timespec="seconds")
+    with store_of(request).change() as data:
+        data["sessions"] = {
+            key: session for key, session in data["sessions"].items()
+            if signed_in(session) or (isinstance(session, dict) and session["at"] > cutoff)
+        }
+        data["sessions"][token] = {"user": username, "company": "", "at": now()}
+    response = RedirectResponse(f"/odex/login/company?next={quote(target)}", status_code=303)
+    response.set_cookie(COOKIE, token, httponly=True, samesite="lax", path="/odex")
+    return response
+
+
+@router.get("/login/company")
+def company_page(
+    request: Request, next_page: str = Query(HOME, alias="next"), error: str = "", company: str = "", other: str = ""
+) -> Response:
+    """The login's second step, which the real page shows after the password: WELCOME,
+    the User ID, the company to sign in as, and Confirm Sign In. ODeX's script and
+    stylesheet give its ids, words and look; its screenshot hasn't been seen."""
+    target = _after_login(next_page)
+    _, session = _pending(request)
+    if session is None:
+        return RedirectResponse(f"/odex/login?next={quote(target)}", status_code=303)
+    s = LOGIN
+    reset = f"/odex/login/reset?next={quote(target)}"
+    asking = f' data-other-session="{esc(OTHER_SESSION)}"' if other and company in COMPANIES else ""
+    live = f"""<div id="welcome" class="live" style="{s.at(*LOGIN_HEADER)}">Welcome</div>
+<form id="loginForm" name="loginForm" class="live company-step" action="/odex/login/company" method="post" autocomplete="off" data-reset="{esc(reset)}"{asking} style="{s.at(*LOGIN_BOX)}">
+<input type="hidden" name="next" value="{esc(target)}">
+<input type="hidden" name="closeOthers" value="">
+<div id="invDivMsg">{esc(LOGIN_ERRORS.get(error, ""))}</div>
+<div id="loginIdLabel" class="underlined">{esc(session["user"])}</div>
+<select id="compName" name="compName" class="chosen-select">{_options(COMPANIES, company, "Select Company")}</select>
+<div class="company-buttons">
+<button id="confirmSignIn" type="submit">Confirm Sign In</button>
+<button id="reset" type="button">Reset</button>
+</div>
+</form>"""
+    return _page("ODeX India", _shot(request, s, live), script=_COMPANY_SCRIPT, style=_LOGIN_STYLE)
+
+
+@router.post("/login/company")
+async def confirm_sign_in(request: Request) -> Response:
+    form = await request.form()
+    target = _after_login(forms.text(form, "next"))
+    company = forms.text(form, "compName")
+    token, session = _pending(request)
+    if session is None:
+        return RedirectResponse(f"/odex/login?next={quote(target)}", status_code=303)
+    if company not in COMPANIES:
+        return RedirectResponse(f"/odex/login/company?error=company&next={quote(target)}", status_code=303)
+    # One session per login: signing in again asks first, then closes the other one.
+    with store_of(request).read() as data:
+        others = [
+            key for key, other in data["sessions"].items()
+            if key != token and signed_in(other) and other["user"] == session["user"]
+        ]
+    if others and forms.text(form, "closeOthers") != "1":
+        return RedirectResponse(
+            f"/odex/login/company?other=1&company={quote(company)}&next={quote(target)}", status_code=303
+        )
+    with store_of(request).change() as data:
+        for key in others:
+            data["sessions"].pop(key, None)
+        data["sessions"][token] = {**session, "company": company, "at": now()}
+    return RedirectResponse(target, status_code=303)
+
+
+@router.get("/login/reset")
+def reset_login(request: Request, next_page: str = Query(HOME, alias="next")) -> Response:
+    """Reset: drops a sign-in halfway through, and starts again."""
+    token, session = _pending(request)
+    if session is not None:
+        with store_of(request).change() as data:
+            data["sessions"].pop(token, None)
+    return RedirectResponse(f"/odex/login?next={quote(_after_login(next_page))}", status_code=303)
 
 
 @router.get("/screens/{name}")

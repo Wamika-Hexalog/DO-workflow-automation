@@ -18,7 +18,7 @@ from typing import Any
 def _empty() -> dict[str, Any]:
     return {
         "version": 0,  # goes up with every change; the control panel reloads on it
-        "sessions": {},  # ODeX login cookie -> username
+        "sessions": {},  # ODeX login cookie -> {user, company (empty until chosen), at}
         "counters": {},
         "files": {},
         "invoice_requests": [],

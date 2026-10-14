@@ -1,11 +1,11 @@
-"""The local ODeX: its login, its files, and the plain pages for the steps no
+"""The local ODeX: its sessions, its files, and the plain pages for the steps no
 screenshot shows yet (the SOP sheet of DO PROCESS FLOW E2E.xlsx):
 
     Counter Process → Deposit and Refund → New Deposit
     e-Payment → DO Request → New DO Request
 
-The pages the team's ODeX guide shows (from the services page to the invoice) are
-screenshots with live buttons over them, in odex_screens.py.
+The login and the pages the team's ODeX guide shows (from the services page to the
+invoice) are screenshots with live buttons over them, in odex_screens.py.
 
 Requests then wait for CMA CGM, which the control panel plays. Every form answers
 with an #outcome element the SOPs read (pages.outcome), and each list marks its
@@ -17,20 +17,21 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from . import forms, pages
 from .pages import esc
-from .settings import odex_login
 from .store import Store, next_ref, now
 
 router = APIRouter(prefix="/odex")
 
 COOKIE = "odex_session"
+SESSION_HOURS = 12  # how long a sign-in lasts
 LINERS = ("CMA CGM", "COSCO", "Hapag-Lloyd", "Maersk", "MSC", "ONE")
 PAYMENT_MODES = ("RTGS/NEFT", "DD/Pay Order", "Cheque")
 REFUND_TO = ("Consignee", "Third Party")
@@ -57,12 +58,23 @@ def store_of(request: Request) -> Store:
     return request.app.state.store
 
 
+def signed_in(session: Any) -> bool:
+    """A session through both of the login's steps (the password, then the company)
+    that hasn't run out."""
+    return (
+        isinstance(session, dict)
+        and bool(session.get("company"))
+        and session["at"] > (datetime.now() - timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
+    )
+
+
 def current_user(request: Request) -> str | None:
     token = request.cookies.get(COOKIE)
     if not token:
         return None
     with store_of(request).read() as data:
-        return data["sessions"].get(token)
+        session = data["sessions"].get(token)
+    return session["user"] if signed_in(session) else None
 
 
 def to_login(request: Request) -> RedirectResponse:
@@ -70,8 +82,8 @@ def to_login(request: Request) -> RedirectResponse:
 
 
 def _page(title: str, body: str, user: str, *, script: str = "", status_code: int = 200) -> Response:
-    signed_in = f'<span class="user">{esc(user)} · <a id="logout" href="/odex/logout">Log out</a></span>'
-    return pages.page(title, body, site="odex", menu=MENU, user=signed_in, script=script, status_code=status_code)
+    who = f'<span class="user">{esc(user)} · <a id="logout" href="/odex/logout">Log out</a></span>'
+    return pages.page(title, body, site="odex", menu=MENU, user=who, script=script, status_code=status_code)
 
 
 def _answer(
@@ -111,39 +123,6 @@ def _when(item: dict[str, Any]) -> str:
 @router.get("")
 def root(request: Request) -> Response:
     return RedirectResponse("/odex/home" if current_user(request) else "/odex/login", status_code=303)
-
-
-@router.get("/login")
-def login_page(next_page: str = Query("/odex/home", alias="next"), failed: bool = False) -> Response:
-    error = '<p class="error" id="login-error">Wrong username or password.</p>' if failed else ""
-    body = f"""<div class="card" style="max-width:400px;margin:32px auto">
-<h1>Log in</h1>{error}
-<form method="post" action="/odex/login" id="login-form" class="grid" style="grid-template-columns:1fr">
-<input type="hidden" name="next" value="{esc(next_page)}">
-{pages.field("username", "Username")}
-{pages.field("password", "Password", type="password")}
-<div class="actions"><button class="btn primary" id="login" type="submit">Log in</button></div>
-</form></div>"""
-    return pages.page("Log in", body, site="odex")
-
-
-@router.post("/login")
-async def login(request: Request) -> Response:
-    form = await request.form()
-    target = forms.text(form, "next")
-    if not target.startswith("/odex/") or target.startswith("/odex/log"):
-        target = "/odex/home"
-    username, password = odex_login()
-    right_user = secrets.compare_digest(forms.text(form, "username").encode(), username.encode())
-    right_password = secrets.compare_digest(str(form.get("password") or "").encode(), password.encode())
-    if not (right_user and right_password):
-        return RedirectResponse(f"/odex/login?failed=1&next={quote(target)}", status_code=303)
-    token = secrets.token_urlsafe(24)
-    with store_of(request).change() as data:
-        data["sessions"][token] = username
-    response = RedirectResponse(target, status_code=303)
-    response.set_cookie(COOKIE, token, httponly=True, samesite="lax", path="/odex")
-    return response
 
 
 @router.get("/logout")

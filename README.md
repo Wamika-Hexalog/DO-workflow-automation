@@ -15,6 +15,7 @@ You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12) and Node 18+
 ```bash
 make setup         # Python 3.12 and packages with uv; npm install, including the Inngest dev server
 make assets        # transparent stamps, bonds, letterheads and the ODeX guide's screenshots, from Docs/
+make odex-login-screen  # the real ODeX login page's screenshot, for the local one (nothing is typed or sent)
 make dev           # API on :8000, UI with hot reload on :5173, Inngest dev server on :8288
 make demo          # builds the UI; serves it with the API on :8000, plus the Inngest dev server
 make test          # backend tests (the workflows run in process; no dev server needed)
@@ -120,11 +121,11 @@ Mail without a code, or with an MBL no job has, is ignored. To receive real mail
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
 
-- **ODeX** (`/odex`). The invoice steps are the team's ODeX guide: its screenshots, with live buttons and fields over only what the process uses. That covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. New Deposit (with its slip once approved) and New DO Request (with its eDO once issued) are plain pages until the guide covers them.
+- **ODeX** (`/odex`). The login is the real ODeX India login page, which works like it: the same fields and ids, its captcha drawn and checked the same way, the company to choose after the password, and the "already logged in another session" question. The invoice steps are the team's ODeX guide: its screenshots, with live buttons and fields over only what the process uses. That covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. New Deposit (with its slip once approved) and New DO Request (with its eDO once issued) are plain pages until the guide covers them.
 - **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from the real one's HTML (same ids, checks and messages, and the same page after Submit), invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
 - **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
 
-The pages look like the real ones, with no demo banner; the portals listen only on this machine, and every document they hand out is watermarked LOCAL DEMO. The ODeX screenshots show a real account, so `make assets` keeps them in `backend/assets/private/`, out of git. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
+The pages look like the real ones, with no demo banner or watermark; the portals listen only on this machine, and the documents they hand out have DEMO in their numbers (INV-DEMO-…). The ODeX screenshots show a real account, so `make assets` keeps them in `backend/assets/private/`, out of git, and `make odex-login-screen` saves the login page's there too. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
 
 `backend/sops/local` has an SOP for each step, filled from the database by `app/portal_params.py`. Its README maps every page field to the field it comes from, and lists what's still needed to move to the real sites. Run a step for a job with `make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1`.
 

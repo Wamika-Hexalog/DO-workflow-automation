@@ -34,10 +34,11 @@ steps:
     url: "{params.odex_url}/login"
     wait_for: domcontentloaded
 
+  # The login page's fields have the real ODeX's ids.
   - action: fill
-    description: Enter the username
+    description: Enter the User ID
     method: playwright
-    selector: "#username"
+    selector: "#loginId"
     value_from: credentials.username_env
 
   - action: fill
@@ -46,10 +47,71 @@ steps:
     selector: "#password"
     value_from: credentials.password_env
 
-  - action: click
-    description: Log in
+  # ODeX's login has a picture captcha, which on the real site a person has to read.
+  # It isn't asked for a User ID the browser signed in with in the last 30 days. The
+  # local ODeX puts the answer on its page, so these SOPs run unattended.
+  - action: execute_script
+    description: Read the captcha (the local ODeX gives its answer)
     method: playwright
-    selector: "#login"
+    script: |
+      () => {
+        const box = document.querySelector('#valiIpt');
+        if (!box || !box.checkVisibility()) return { set_params: { captcha: '' } };
+        const answer = document.querySelector('#valicode')?.dataset.answer;
+        if (!answer) throw new Error('The captcha has to be read by a person');
+        return { set_params: { captcha: answer } };
+      }
+
+  - action: fill
+    description: Enter the captcha
+    method: playwright
+    condition: params.captcha
+    selector: "#valiIpt"
+    value_from: params.captcha
+
+  - action: click
+    description: Sign in
+    method: playwright
+    selector: "#signIn"
+
+  - action: wait_for_selector
+    description: Wait for ODeX to ask for the company, or to say why not
+    method: playwright
+    selector: "xpath=//*[@id='confirmSignIn'] | //*[@id='epayment-location'] | //*[@id='invDivMsg'][normalize-space()]"
+
+  - action: execute_script
+    description: Make sure ODeX took the login
+    method: playwright
+    script: |
+      () => {
+        const said = document.querySelector('#invDivMsg')?.textContent.trim();
+        if (said) throw new Error(`ODeX didn't sign in: ${said}`);
+        return { set_params: { choose_company: Boolean(document.querySelector('#confirmSignIn')) } };
+      }
+
+  # After the password ODeX asks which of the login's companies to sign in as.
+  - action: execute_script
+    description: Choose the company
+    method: playwright
+    condition: params.choose_company
+    script: |
+      () => {
+        const select = document.querySelector('#compName');
+        const companies = [...select.options].filter((o) => o.value);
+        if (companies.length !== 1) {
+          throw new Error(`This ODeX login has ${companies.length} companies: the SOP has to be told which to sign in as`);
+        }
+        select.value = companies[0].value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  # If the login is signed in somewhere else, ODeX asks in a dialog whether to close
+  # that session. The agent accepts dialogs, which closes it.
+  - action: click
+    description: Confirm Sign In
+    method: playwright
+    condition: params.choose_company
+    selector: "#confirmSignIn"
 
   - action: wait_for_selector
     description: Wait for the services page

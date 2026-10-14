@@ -17,6 +17,8 @@ from pypdf import PdfReader
 from conftest import HBL, MBL, make_pdf
 from local_portals import cma
 from local_portals.main import create_app
+from local_portals.odex_screens import OTHER_SESSION
+from local_portals.settings import ACCOUNT_NAME
 
 INVOICES = "/odex/epayment/liner-requests"
 BL_STATUS = "/odex/epayment/bl-status"
@@ -46,8 +48,18 @@ DO_REQUEST_FORM = dict(
 )
 
 
-def log_in(client: TestClient):
-    return client.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+def log_in(client: TestClient, user: str = "hexalog-demo", password: str = "local-demo-only"):
+    """Signs in on the local ODeX in its two steps, as the real one has them: the User ID
+    and password (the captcha is the page's own check), then the company. A login
+    signed in elsewhere is asked whether to close that session, and says OK."""
+    page = client.post("/odex/login", data={"loginId": user, "password": password, "next": "/odex/home"})
+    if 'id="confirmSignIn"' not in page.text:
+        return page  # turned down: the login page, saying why
+    company = {"compName": ACCOUNT_NAME, "next": "/odex/home"}
+    page = client.post("/odex/login/company", data=company)
+    if "data-other-session" in page.text:
+        page = client.post("/odex/login/company", data={**company, "closeOthers": "1"})
+    return page
 
 
 @pytest.fixture()
@@ -114,19 +126,48 @@ def stored_text(web: TestClient, file_id: str) -> str:
     return text_of(path.read_bytes())
 
 
-def test_odex_asks_for_the_login(tmp_path):
+def test_odex_signs_in_with_the_password_then_the_company(tmp_path):
     with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=tmp_path / "no-screens")) as web:
         response = web.get("/odex/home", follow_redirects=False)
         assert response.status_code == 303 and response.headers["location"] == "/odex/login?next=/odex/home"
 
-        wrong = web.post("/odex/login", data={"username": "hexalog-demo", "password": "guess", "next": "/odex/home"})
-        assert 'id="login-error"' in wrong.text
+        # The real login page's parts, under its ids.
+        page = web.get("/odex/login").text
+        for real_id in ("loginId", "password", "valicode", "toggle", "valiIpt", "signIn", "reset", "invDivMsg"):
+            assert f'id="{real_id}"' in page, real_id
 
-        home = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
-        assert 'id="epayment-location"' in home.text
-        # The login page only offers the next page within ODeX.
-        away = web.post("/odex/login", data={"username": "hexalog-demo", "password": "local-demo-only", "next": "//elsewhere"}, follow_redirects=False)
-        assert away.headers["location"] == "/odex/home"
+        assert "Invalid User ID or Password" in log_in(web, password="guess").text
+        assert "Please Enter User ID" in log_in(web, user="").text
+        assert "Please Enter Password" in log_in(web, password="").text
+
+        # The password gets the company step, and no further.
+        step = web.post("/odex/login", data={"loginId": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+        assert "Welcome" in step.text and 'id="compName"' in step.text and ACCOUNT_NAME in step.text
+        assert web.get("/odex/home", follow_redirects=False).status_code == 303
+        assert "Please select Company" in web.post("/odex/login/company", data={"compName": "", "next": "/odex/home"}).text
+        signed_in = web.post("/odex/login/company", data={"compName": ACCOUNT_NAME, "next": "/odex/home"})
+        assert 'id="epayment-location"' in signed_in.text  # the services page
+
+        # One session per login: a second browser is asked before the first is closed.
+        with TestClient(web.app) as other:
+            other.post("/odex/login", data={"loginId": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+            asked = other.post("/odex/login/company", data={"compName": ACCOUNT_NAME, "next": "/odex/home"})
+            assert unescape(re.search(r'data-other-session="([^"]+)"', asked.text)[1]) == OTHER_SESSION
+            assert web.get("/odex/home", follow_redirects=False).status_code == 200  # signed in, until the OK
+            assert 'id="epayment-location"' in log_in(other).text
+        assert web.get("/odex/home", follow_redirects=False).status_code == 303
+
+        # Reset drops a sign-in halfway through.
+        web.post("/odex/login", data={"loginId": "hexalog-demo", "password": "local-demo-only", "next": "/odex/home"})
+        assert 'id="loginId"' in web.get("/odex/login/reset").text
+        assert web.get("/odex/login/company", follow_redirects=False).status_code == 303
+
+        # Only ODeX's own pages are offered after signing in.
+        away = web.post(
+            "/odex/login", data={"loginId": "hexalog-demo", "password": "local-demo-only", "next": "//elsewhere"},
+            follow_redirects=False,
+        )
+        assert away.headers["location"] == "/odex/login/company?next=/odex/home"
 
 
 def test_the_odex_guide_from_invoice_request_to_invoice(web):
