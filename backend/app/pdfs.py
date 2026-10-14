@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import re
+import textwrap
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -30,6 +31,8 @@ def compact(text: str) -> str:
 def to_pdf(data: bytes, filename: str) -> bytes:
     """The upload as a PDF. Scans sent as photos become one page per image."""
     suffix = Path(filename).suffix.lower()
+    if suffix == ".rtf":
+        return _rtf_to_pdf(data, filename)
     if suffix in IMAGE_TYPES:
         try:
             image = Image.open(io.BytesIO(data))
@@ -50,6 +53,32 @@ def to_pdf(data: bytes, filename: str) -> bytes:
             raise
         raise UnreadableFile(f"{filename} is not a PDF or an image (JPG or PNG).") from exc
     return data
+
+
+def _rtf_to_pdf(data: bytes, filename: str) -> bytes:
+    """A Word/RTF file as plain text on pages, with a text layer the checks can read.
+    shortcut: layout and fonts are lost; send a PDF when the look matters."""
+    from striprtf.striprtf import rtf_to_text
+
+    try:
+        text = rtf_to_text(data.decode("latin-1"))
+    except Exception as exc:  # noqa: BLE001 - striprtf raises whatever it trips on
+        raise UnreadableFile(f"{filename} could not be read as a Word/RTF file.") from exc
+    lines = [part for line in text.splitlines() for part in (textwrap.wrap(line, 95) or [""])]
+    if not any(line.strip() for line in lines):
+        raise UnreadableFile(f"{filename} has no text.")
+    out = io.BytesIO()
+    sheet = canvas.Canvas(out, pagesize=(595, 842))
+    for i, line in enumerate(lines):
+        row = i % 70
+        if i and row == 0:
+            sheet.showPage()
+        if row == 0:
+            sheet.setFont("Courier", 9)
+        sheet.drawString(40, 800 - row * 11.2, line)
+    sheet.showPage()
+    sheet.save()
+    return out.getvalue()
 
 
 def page_count(pdf: bytes) -> int:

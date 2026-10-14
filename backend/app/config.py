@@ -65,6 +65,31 @@ class Settings:
     odex_url: str = "http://127.0.0.1:8100/odex"
     cma_rtgs_url: str = "http://127.0.0.1:8100/cma-rtgs"
 
+    # Outlook / Microsoft Graph, python-brain's variable names. The hackathon mock flow reads
+    # only mail whose body carries "<inject_code_prefix>:<stage>:<MBL>[:<arg>]".
+    outlook_client_id: str = ""
+    outlook_client_secret: str = ""
+    outlook_tenant_id: str = ""
+    outlook_recipient_email: str = ""
+    outlook_api_timeout: int = 30
+    # Public URL of this API (a tunnel that forwards only /api/webhooks/*); Graph calls it back.
+    webhook_base_url: str = ""
+    # Echoed by Graph in every notification; the webhook drops a mismatch.
+    graph_client_state: str = ""
+    inject_code_prefix: str = "DOHACK"
+    # Mail with this short tag in the subject or body is read for its facts (app/email_infer.py).
+    # Empty: any mail the recognizers know is read.
+    mail_marker: str = "#DOHACK"
+    # House bill numbers to look for in an HBL file. Add the format of each forwarder you receive from.
+    hbl_pattern: str = r"(?:WOLSZSE\d{8}[A-Z]|MSEC\d{12})"
+    # Logins for the public tunnel, "user:password,user2:password2". Local requests need none.
+    basic_auth_users: str = ""
+
+    @property
+    def basic_auth_logins(self) -> tuple[tuple[str, str], ...]:
+        pairs = (entry.split(":", 1) for entry in self.basic_auth_users.split(",") if ":" in entry)
+        return tuple((user.strip(), password) for user, password in pairs if user.strip() and password)
+
     @property
     def odex_automated(self) -> bool:
         return self.odex_sop_path.is_file()
@@ -98,4 +123,15 @@ class Settings:
             browser_allowed_hosts=_hosts("DO_BROWSER_ALLOWED_HOSTS"),
             odex_url=os.getenv("DO_ODEX_URL", cls.odex_url).rstrip("/"),
             cma_rtgs_url=os.getenv("DO_CMA_RTGS_URL", cls.cma_rtgs_url).rstrip("/"),
+            outlook_client_id=os.getenv("OUTLOOK_CLIENT_ID", ""),
+            outlook_client_secret=os.getenv("OUTLOOK_CLIENT_SECRET", ""),
+            outlook_tenant_id=os.getenv("OUTLOOK_TENANT_ID", ""),
+            outlook_recipient_email=os.getenv("OUTLOOK_RECIPIENT_EMAIL", ""),
+            outlook_api_timeout=int(os.getenv("OUTLOOK_API_TIMEOUT", "30")),
+            webhook_base_url=os.getenv("WEBHOOK_BASE_URL", "").rstrip("/"),
+            graph_client_state=os.getenv("GRAPH_CLIENT_STATE", ""),
+            inject_code_prefix=os.getenv("INJECT_CODE_PREFIX", "DOHACK"),
+            mail_marker=os.getenv("MAIL_MARKER", cls.mail_marker),
+            hbl_pattern=os.getenv("HBL_PATTERN", cls.hbl_pattern),
+            basic_auth_users=os.getenv("BASIC_AUTH_USERS", ""),
         )

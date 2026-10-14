@@ -19,3 +19,16 @@ class EventNames:
     REQUEST_SUBMITTED = "customs/do.request.submitted"
     # Ops completed a task. Data: shipment_id, task_key, completed_by.
     TASK_COMPLETED = "customs/task.completed"
+    # Graph told us a message arrived (python-brain's one legacy-named event).
+    EMAIL_INBOUND = "EmailService:InboundMessage"
+    # Mail with an injected code (hackathon mock flow). Data: shipment_id, mbl_no, arg, message_id.
+    INVOICE_VERIFIED = "customs/do.invoice.verified"
+    UTR_RECEIVED = "customs/do.payment.utr-received"
+    EDO_RECEIVED = "customs/do.edo.received"
+
+
+# Graph retries a notification it did not get a 2xx for. Inngest dedups the inbound event on
+# message id for 24h. To re-run a message already seen, send force_reprocess with a new string:
+# the empty string is the key that already ran, so that send is dropped with no error.
+FORCE_REPROCESS_KEY = "force_reprocess"
+INGEST_IDEMPOTENCY = f'event.data.message_id + ":" + event.data.{FORCE_REPROCESS_KEY}'

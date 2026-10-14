@@ -72,6 +72,50 @@ Until the ODeX SOP is written, the DO request is raised by hand and approving it
 
 Uploads and edits tell the engine in the background, so a stopped engine never slows the app. Building and approving need it: if it isn't running they say so, and nothing is left half-started.
 
+## Email (Outlook)
+
+Mail arrives through Microsoft Graph: a subscription on the mailbox calls `POST /api/webhooks/microsoft-graph`, which sends python-brain's `EmailService:InboundMessage` event to the `email-inbound` workflow. The connector (`backend/app/connectors/`) is python-brain's, with only its imports changed.
+
+There is no general classifier. A mail is read only if it has the short marker `#DOHACK` (a whole word, in the subject or the body; set `MAIL_MARKER` to change it, or to nothing to read every mail the recognizers know). The facts are then read from the mail itself (`backend/app/email_infer.py`), for the three kinds of mail the demo uses:
+
+| Mail | What is read | What happens |
+|---|---|---|
+| CMA CGM RTGS/NEFT confirmation with an invoice | UTR, invoice number, BL number | `payment_utr` and `do_invoice_no` are filled; the receipt goes to the DO Receipt slot |
+| The same with no invoice (the 40,000 deposit) | UTR, BL number | `deposit_utr` is filled; the receipt goes to the Security Receipt slot |
+| ODeX security slip | The house bill number | The slip goes to the Security-cum-ODEX Receipt slot of the job that has that house bill |
+| Draft MBL and HBL mail | The MBL number | Opens the job if there is none. Each attachment goes to its slot by file name, or by what is in it. Read from the bills: HBL numbers, containers, vessel, voyage, and the consignees |
+
+Mail with the marker that no recognizer knows is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers):
+
+```
+DOHACK:<stage>:<MBL>[:<arg>]
+```
+
+The flow after a mail with MBL and HBL:
+
+```
+EmailService:InboundMessage → email-inbound   (attach each file, fill HBL and container numbers)
+  → customs/do.document.received, customs/do.shipment.updated
+  → do-folder-verify    (checks every document belongs to the shipment; flags the rest)
+  → customs/do.folder.ready → ops review and build (stamps go on and the letters are filled from the fields)
+  → do-folder-build → customs/do.docs.ready → do-request-submit
+```
+
+### Try it
+
+Forward the mails, in this order, to the watched mailbox with `#DOHACK` at the start of the subject and nothing else added: the draft MBL and HBLs mail, the two RTGS confirmations, and the ODeX security slip. Forward the original so its attachments stay. The draft mail opens the job: it creates one for the MBL, fills the HBL numbers, containers, vessel, voyage and consignees from the bills, and attaches them (an RTF MBL becomes a plain-text PDF). The other mails then add their documents to that job. The explicit `DOHACK:` codes (above) are for a mail the recognizers get wrong.
+
+**Without Outlook**, with `make dev` running:
+
+```bash
+cd backend && uv run python scripts/simulate_mail.py --subject "#DOHACK Fw: ODeX: Security slip - SD2026000000001" \
+  --text-file slip-mail.txt --attach slip.pdf
+```
+
+The script writes the mail to `backend/data/files/inbox/` and sends the `EmailService:InboundMessage` event. The app reads a mail from there when its id is a folder there, and from Graph otherwise. In a shell, write `"${MBL}:slot"`, not `$MBL:slot`: zsh reads `:s` as a modifier.
+
+Mail without a code, or with an MBL no job has, is ignored. To receive real mail, fill in the `OUTLOOK_*`, `WEBHOOK_BASE_URL` and `GRAPH_CLIENT_STATE` variables in `backend/.env` and point a tunnel at port 8000 (`ngrok http 8000 --url=<your domain>`). On the tunnel's hostname only `POST/GET /api/webhooks/microsoft-graph` is open (Graph can't send a login; the webhook checks `clientState`). Everything else, the UI included, asks for a login from `BASIC_AUTH_USERS=user:password,...`; with none set the tunnel serves only that webhook. `/api/inngest` is never served on the tunnel. Local requests need no login. For the UI through the tunnel use `make demo`, which serves the built UI from the API on 8000. `GET /api/webhooks/status` shows the subscription.
+
 ## Local portals
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
