@@ -9,7 +9,15 @@ import pytest
 from pypdf import PdfReader
 
 from app import portal_params, service
-from app.portal_params import DEPOSIT, DEPOSIT_STATUS, DO_REQUEST, REQUEST_INVOICE, RTGS_PAYMENT, MissingData
+from app.portal_params import (
+    DEPOSIT,
+    DEPOSIT_STATUS,
+    DO_REQUEST,
+    REQUEST_INVOICE,
+    RTGS_DEPOSIT,
+    RTGS_SHIPMENT,
+    MissingData,
+)
 from conftest import HBL, MBL, attach, attach_everything, build, make_pdf, new_shipment
 
 HBL_2 = "MSEC260803047403"
@@ -30,21 +38,25 @@ def set_values(api, shipment: dict, **values) -> dict:
     return response.json()
 
 
-def set_mailbox(api, mailbox: str = "do-desk@example.com") -> None:
-    assert api.patch("/api/profile", json={"values": {"do_mailbox": mailbox}}).status_code == 200
+def set_fixed(api, **values: str) -> None:
+    assert api.patch("/api/profile", json={"values": values}).status_code == 200
 
 
 def test_each_step_says_what_it_still_needs(api):
+    with pytest.raises(MissingData) as missing:
+        params(api, new_shipment(api, containers=""), REQUEST_INVOICE)
+    assert str(missing.value) == "Requesting the DO invoice on ODeX needs Container nos. first."
     s = new_shipment(api)
     with pytest.raises(MissingData) as missing:
-        params(api, s, REQUEST_INVOICE)
+        params(api, s, RTGS_SHIPMENT)
     assert str(missing.value) == (
-        "Requesting the DO invoice on ODeX needs Mailbox for CMA CGM's emails (fixed details) first."
+        "Confirming the shipment payment on CMA CGM's RTGS page needs UTR for the shipment payment, Bank account no. "
+        "that pays CMA CGM (fixed details), DO invoice amount (₹), Date of transfer and DO invoice no. first."
     )
-    with pytest.raises(MissingData, match="needs Mailbox for CMA CGM's emails \\(fixed details\\), Payment date, "
-                       "DO invoice no., DO invoice amount \\(₹\\), UTR for the invoice and UTR for the deposit first"):
-        params(api, s, RTGS_PAYMENT)
-    with pytest.raises(MissingData, match="UTR for the deposit, Payment date and the Security Receipt in the DO folder"):
+    with pytest.raises(MissingData, match="needs UTR for the security deposit, Bank account no. that pays CMA CGM "
+                       "\\(fixed details\\) and Date of transfer first"):
+        params(api, s, RTGS_DEPOSIT)
+    with pytest.raises(MissingData, match="UTR for the security deposit, Date of transfer and the Security Receipt in the DO folder"):
         params(api, s, DEPOSIT)
     with pytest.raises(MissingData, match="Raising the DO request on ODeX needs a built DO folder first"):
         params(api, s, DO_REQUEST)
@@ -53,7 +65,7 @@ def test_each_step_says_what_it_still_needs(api):
 
 
 def test_the_invoice_request_and_the_payments_come_from_the_job(api):
-    set_mailbox(api)
+    set_fixed(api, do_mailbox="do-desk@example.com", payer_account_no="123456789012")
     s = set_values(api, new_shipment(api, containers="TCNU5191327\nCMAU9987728"), **PAID)
     assert params(api, s, REQUEST_INVOICE) == {
         MBL: {
@@ -65,19 +77,24 @@ def test_the_invoice_request_and_the_payments_come_from_the_job(api):
             "odex_url": "http://127.0.0.1:8100/odex",
         }
     }
-    assert params(api, s, RTGS_PAYMENT)[MBL] == {
-        "mbl_no": MBL,
-        "customer_name": "HEXALOG GLOBAL SUPPLY CHAINS PVT LTD",
-        "email": "do-desk@example.com",
-        "bank_name": "ICICI BANK",
-        "payment_date": "2026-10-01",
+    # CMA CGM's RTGS page is filed twice: the shipment payment, then the security deposit.
+    assert params(api, s, RTGS_SHIPMENT)[MBL] == {
+        "company_name": "HEXALOG GLOBAL SUPPLY CHAINS PVT LTD",
+        "contact_name": "Kishan Rawat",
+        "contact_number": "8802757004",
+        "emails": "do-desk@example.com",
+        "utr": "DEMOUTR0431INV",
+        "bank_account": "123456789012",
+        "amount": "54720.68",
+        "transfer_date": "01-10-2026",
+        "security_deposit": "",
         "invoice_no": "INV-DEMO-0431",
-        "invoice_amount": "54720.68",
-        "invoice_utr": "DEMOUTR0431INV",
-        "deposit_amount": "40000",
-        "deposit_utr": "DEMOUTR0431DEP",
+        "bl_no": MBL,
         "cma_rtgs_url": "http://127.0.0.1:8100/cma-rtgs",
     }
+    deposit = params(api, s, RTGS_DEPOSIT)[MBL]
+    assert (deposit["security_deposit"], deposit["invoice_no"], deposit["bl_no"]) == ("yes", "", MBL)
+    assert (deposit["utr"], deposit["amount"]) == ("DEMOUTR0431DEP", "40000.00")
 
 
 def test_a_deposit_refunded_to_the_cha_carries_hexalogs_noc(api):

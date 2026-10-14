@@ -93,34 +93,31 @@ def verify_invoice(store: Store, item_id: str) -> str:
 
 
 def send_receipts(store: Store, item_id: str) -> str:
-    """CMA CGM's finance finds the payments and emails a receipt for each."""
+    """CMA CGM's finance finds the payment and emails its receipt: a Security Receipt
+    when it pays only security deposits, a DO Receipt when it pays invoices."""
     with store.change() as data:
         request = _waiting(data, "rtgs_requests", item_id)
-        parts = [
-            ("DO Receipt", request["invoice_no"], request["invoice_amount"], request["invoice_utr"]),
-            ("Security Receipt", "", request["deposit_amount"], request["deposit_utr"]),
-        ]
-        attachments, made = [], []
-        for kind, invoice_no, amount, utr in parts:
-            if not amount:
-                continue
-            receipt_no = f"RCPT-DEMO-{next_number(data, 'receipt'):05d}"
-            pdf = documents.receipt_pdf(
-                kind=kind, receipt_no=receipt_no, on=date.today().isoformat(), customer=request["customer_name"],
-                invoice_no=invoice_no, bl_no=request["bl_no"], amount=amount, utr=utr,
-                paid_on=request["payment_date"], bank=request["bank_name"],
-            )
-            attachments.append(store.add_file(data, pdf, f"{kind} {receipt_no}.pdf"))
-            made.append(f"{kind} {receipt_no}")
-        request.update(status="Receipts Sent", receipts=attachments, answered_at=now())
+        rows = request["invoices"]
+        kind = "Security Receipt" if rows and all(r["security_deposit"] for r in rows) else "DO Receipt"
+        lines = [(r["invoice_no"], r["bl_no"], r["amount"]) for r in rows]
+        if request["advance_amount"]:
+            lines.append(("Advance", "-", request["advance_amount"]))
+        receipt_no = f"RCPT-DEMO-{next_number(data, 'receipt'):05d}"
+        pdf = documents.receipt_pdf(
+            kind=kind, receipt_no=receipt_no, on=date.today().isoformat(), customer=request["company_name"],
+            lines=lines, total=request["amount"], utr=request["utr"], paid_on=request["transfer_date"],
+            account=request["bank_account"],
+        )
+        file_id = store.add_file(data, pdf, f"{kind} {receipt_no}.pdf")
+        request.update(status="Receipt Sent", receipts=[file_id], answered_at=now())
         _email(
             data,
-            request["email"],
-            f"Receipts for B/L {request['bl_no']}",
-            f"We have received your payments for B/L {request['bl_no']}. The receipts are attached.",
-            attachments,
+            ", ".join(request["emails"]),
+            f"{kind} {receipt_no} for B/L {request['bl_no']}",
+            f"We have received your payment, UTR {request['utr']}, for B/L {request['bl_no']}. The receipt is attached.",
+            [file_id],
         )
-    return f"Emailed {' and '.join(made)} for {request['ref']} to {request['email']}."
+    return f"Emailed {kind} {receipt_no} for {request['ref']} to {', '.join(request['emails'])}."
 
 
 def approve_deposit(store: Store, item_id: str) -> str:

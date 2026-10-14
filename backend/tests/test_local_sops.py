@@ -24,7 +24,15 @@ from pypdf import PdfReader
 from app import portal_params
 from app.config import LOCAL_ODEX_LOGIN
 from app.main import create_app
-from app.portal_params import DEPOSIT, DEPOSIT_STATUS, DO_REQUEST, DO_REQUEST_STATUS, REQUEST_INVOICE, RTGS_PAYMENT
+from app.portal_params import (
+    DEPOSIT,
+    DEPOSIT_STATUS,
+    DO_REQUEST,
+    DO_REQUEST_STATUS,
+    REQUEST_INVOICE,
+    RTGS_DEPOSIT,
+    RTGS_SHIPMENT,
+)
 from app.workflows import browser
 from conftest import HBL, MBL, Engine, RecordingInngest, attach, build, make_pdf, new_shipment, settings_for, task
 from local_portals import cma
@@ -92,16 +100,20 @@ def answer(portals: SimpleNamespace, kind: str) -> None:
         cma.ANSWERS[kind](portals.store, item_id)
 
 
-def last_email(portals: SimpleNamespace) -> list[tuple[str, bytes]]:
+def emailed(portals: SimpleNamespace, name_starts: str) -> tuple[str, bytes]:
+    """A file CMA CGM emailed, by the start of its name."""
     with portals.store.read() as data:
-        attachments = data["outbox"][0]["attachments"]
-    files = [portals.store.file(file_id) for file_id in attachments]
-    return [(name, path.read_bytes()) for name, path in files]
+        file_ids = [file_id for mail in data["outbox"] for file_id in mail["attachments"]]
+    for name, path in (portals.store.file(file_id) for file_id in file_ids):
+        if name.startswith(name_starts):
+            return name, path.read_bytes()
+    raise AssertionError(f"CMA CGM emailed no {name_starts}")
 
 
 def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     api, engine = do_app
-    assert api.patch("/api/profile", json={"values": {"do_mailbox": "do-desk@example.com"}}).status_code == 200
+    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012"}
+    assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
     s = new_shipment(api)
 
     # IGM filed: request the DO invoice. The liner verifies it and emails it.
@@ -116,12 +128,20 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     )
     s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": paid}).json()
 
-    # Finance paid: enter both payments on the RTGS site. CMA CGM emails a receipt for each.
-    assert run(api, s, RTGS_PAYMENT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
+    # Finance paid: confirm each payment on CMA CGM's RTGS page. CMA CGM emails a receipt for each.
+    assert run(api, s, RTGS_SHIPMENT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
+    assert run(api, s, RTGS_DEPOSIT)[0]["cma_rtgs_request_ref"].startswith("RTGS")
+    with portals.store.read() as data:
+        rows = [request["invoices"][0] for request in data["rtgs_requests"]]
+    assert [(r["security_deposit"], r["invoice_no"], r["amount"]) for r in rows] == [
+        (False, invoice["invoice_no"], invoice["amount"]),
+        (True, "", 40000.0),
+    ]
     answer(portals, "rtgs_requests")
-    (do_receipt_name, do_receipt), (security_name, security_receipt) = last_email(portals)
-    s = attach(api, s, "do_receipt", do_receipt, do_receipt_name)
-    s = attach(api, s, "security_receipt", security_receipt, security_name)
+    name, receipt = emailed(portals, "DO Receipt")
+    s = attach(api, s, "do_receipt", receipt, name)
+    name, receipt = emailed(portals, "Security Receipt")
+    s = attach(api, s, "security_receipt", receipt, name)
 
     # The deposit, with Hexalog's NOC and the security receipt, then its slip once approved.
     assert run(api, s, DEPOSIT)[0]["odex_deposit_ref"].startswith("SD")
@@ -160,6 +180,6 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     text = PdfReader(io.BytesIO(Path(edo["downloaded_file_path"]).read_bytes())).pages[0].extract_text()
     assert HBL in text and "DELIVERY ORDER" in text
 
-    # Every run is in the job's run log: six steps, the deposit checked twice.
+    # Every run is in the job's run log: seven steps, the deposit checked twice.
     runs = api.get(f"/api/shipments/{s['id']}/runs").json()
-    assert len(runs) == 7 and {r["status"] for r in runs} == {"completed"}
+    assert len(runs) == 8 and {r["status"] for r in runs} == {"completed"}

@@ -9,8 +9,8 @@
 #   liner             fixed details: Liner on ODeX
 #   hbl_no            the house B/L this deposit is for
 #   amount            job: Security deposit
-#   utr               job: UTR for the deposit
-#   payment_date      job: Payment date, YYYY-MM-DD
+#   utr               job: UTR for the security deposit
+#   payment_date      job: Date of transfer, YYYY-MM-DD
 #   bank_name         fixed details: Bank that pays CMA CGM
 #   refund_to         job: Deposit refunded to ("Third Party" or "Consignee")
 #   third_party_name  job: CHA, for a refund to a third party; empty otherwise

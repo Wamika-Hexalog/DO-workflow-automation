@@ -2,7 +2,7 @@
 
 The CMA CGM DO process uses two websites: ODeX, and CMA CGM's RTGS payments page. The SOPs here drive local versions of both (`backend/local_portals`). That lets the whole process be shown, and every SOP be proven, without touching a real site. The browser agent is python-brain's, and the SOPs use python-brain's format. All their steps are scripted Playwright steps, so no model is called.
 
-The local sites follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx` and the sample documents in `Docs/`. The real pages' fields and selectors aren't known yet: see [Moving to the real sites](#moving-to-the-real-sites).
+The local RTGS page copies screenshots of CMA CGM's real one. The local ODeX follows the SOP sheet of `DO PROCESS FLOW E2E.xlsx` and the sample documents in `Docs/`, since its real pages haven't been seen yet. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
 
@@ -33,26 +33,35 @@ ODeX → Request → Liner Request → Request New Invoice. Once per MBL, after 
 | Invoice type | Always "Delivery Order" |
 | B/L number | Job: Master B/L no. (`mbl_no`): CMA CGM invoices the master bill |
 | Container numbers | Job: Container nos. (`containers`) |
-| Email for the invoice | Fixed details: Mailbox for CMA CGM's emails (`do_mailbox`) |
+| Email(s) for the invoice | Fixed details: Emails for CMA CGM's invoice and receipts (`do_mailbox`) |
 | Remarks | The job number |
 
 It reads back ODeX's request number (`odex_invoice_request_ref`). CMA CGM then verifies the request and emails the invoice. Its number and amount go on the job as DO invoice no. and DO invoice amount.
 
-### 2. Enter the payments: `cma_rtgs_new_request`
+### 2. Confirm the payments: `cma_rtgs_shipment_payment` and `cma_rtgs_security_deposit`
 
-CMA CGM RTGS → Finance → RTGS → New Request. Once per MBL, after Finance pays the invoice and the deposit and shares the UTRs.
+CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page (`rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest/`), after Finance pays and shares the UTRs. It's filed twice per MBL, once for each payment, with the same SOP (`cma_rtgs/new_request.yaml`):
+
+- **The shipment payment**: invoice grid row 1 holds the DO invoice number, the B/L and the amount.
+- **The security deposit**: row 1 has Security Deposit ticked, the OBL (the master B/L) and the amount. The invoice number cell is greyed out.
 
 | Page field | Filled with |
 |---|---|
-| B/L number | Job: Master B/L no. (`mbl_no`) |
-| Customer name | Job: Consignee as per MBL (`consignee_mbl`), who pays CMA CGM |
-| Email for the receipts | Fixed details: Mailbox for CMA CGM's emails (`do_mailbox`) |
-| Remitting bank | Fixed details: Bank that pays CMA CGM (`payer_bank`, default ICICI BANK) |
-| Payment date | Job: Payment date (`payment_date`) |
-| Invoice number, amount, UTR | Job: DO invoice no., DO invoice amount, UTR for the invoice (`do_invoice_no`, `do_invoice_amount`, `payment_utr`) |
-| Deposit amount, UTR | Job: Security deposit, UTR for the deposit (`deposit_amount`, default 40,000; `deposit_utr`) |
+| Company Name & City | Fixed details: Forwarder (`forwarder_name`) |
+| Contact Number | Fixed details: Contact number on CMA CGM's RTGS page (`rtgs_contact_number`, default 8802757004) |
+| Contact Name | Fixed details: Contact name on CMA CGM's RTGS page (`rtgs_contact_name`, default Kishan Rawat) |
+| Email(s) | Fixed details: Emails for CMA CGM's invoice and receipts (`do_mailbox`, at most 3, default kishan@hexalog.in,customs-ops@Hexalog.in) |
+| UTR Number | Job: UTR for the shipment payment (`payment_utr`), or UTR for the security deposit (`deposit_utr`) |
+| Currency | Always INR - Indian Rupees |
+| Your Bank A/C Nb | Fixed details: Bank account no. that pays CMA CGM (`payer_account_no`). It isn't in the repo: enter it once in the app |
+| Amount | Job: DO invoice amount (`do_invoice_amount`), or Security deposit (`deposit_amount`, default 40,000), as 54720.68 |
+| Date of Transfer | Job: Date of transfer (`payment_date`), as DD-MM-YYYY |
+| Grid row 1: Security Deposit | Ticked for the security deposit only |
+| Grid row 1: Invoice Number | Job: DO invoice no. (`do_invoice_no`), for the shipment payment only |
+| Grid row 1: BL Number | Job: Master B/L no. (`mbl_no`) |
+| Grid row 1: Amount | The same amount as above |
 
-It reads back the request number (`cma_rtgs_request_ref`). CMA CGM then emails two receipts, which go in the DO folder: the DO Receipt and the Security Receipt.
+Before submitting, the SOP checks that it's CMA CGM's page (the same page serves other carriers under Change Carrier), and reads row 1 back to make sure the grid holds what it typed. Each run reads back the request number (`cma_rtgs_request_ref`). CMA CGM then emails a receipt for each payment, and they go in the DO folder: the DO Receipt and the Security Receipt.
 
 ### 3. Raise the security deposit: `odex_deposit_new`
 
@@ -64,8 +73,8 @@ ODeX → Counter Process → Deposit and Refund → New Deposit. Once per house 
 | B/L number | The house B/L |
 | Deposit amount | Job: Security deposit (`deposit_amount`) |
 | Payment mode | Always RTGS/NEFT |
-| UTR / instrument no. | Job: UTR for the deposit (`deposit_utr`) |
-| Payment date | Job: Payment date (`payment_date`) |
+| UTR / instrument no. | Job: UTR for the security deposit (`deposit_utr`) |
+| Payment date | Job: Date of transfer (`payment_date`) |
 | Bank name | Fixed details: Bank that pays CMA CGM (`payer_bank`) |
 | Refund to | Job: Deposit refunded to (`deposit_refund_to`, default Third Party) |
 | Third party name | Job: CHA (`cha`), for a refund to a third party |
@@ -105,7 +114,7 @@ ODeX → e-Payment → DO Request. Once per house B/L. This step only reads, so 
 The job form has two groups for values that arrive by email:
 
 - **Liner invoice**: DO invoice no. and amount, from CMA CGM's email once it verifies the invoice.
-- **Payment and deposit**: the two UTRs and the payment date, from Finance's email. The deposit amount defaults to 40,000, and the refund defaults to a third party, the CHA.
+- **Payment and deposit**: the two UTRs and the date of transfer, from Finance's email. The deposit amount defaults to 40,000, and the refund defaults to a third party, the CHA.
 
 For now ops type these values in. Once the Graph subscription's emails are read, the ingest can fill them.
 
@@ -114,6 +123,7 @@ For now ops type these values in. Once the Graph subscription's emails are read,
 - Each SOP has a header comment listing its params and where each one comes from.
 - Each ODeX SOP logs in from the credentials block, then goes through the menus as a person would.
 - Drop-downs are set by an `execute_script` step with `script_args`. Values are passed as arguments and are never pasted into the script.
+- The RTGS page's invoice grid is filled the way a person fills it: click the cell, type the value, press Enter, one cell at a time.
 - A submit and the check of its answer are separate steps. The agent retries a failed step up to three times, and only the check is safe to repeat. The check reads the portal's answer (`#outcome` on the local sites). If the portal turned the form down, the check throws, and the run fails with the portal's own message.
 - The local portals refuse a second deposit or DO request for the same B/L, and a second payment with the same UTR. This is how a real portal would behave. The app also takes its own claim before raising each DO request, so it never raises one twice.
 - Downloads use a fixed selector. The check step marks the row's link with an id, and sets a param that the download step's `condition` reads.
@@ -133,13 +143,13 @@ The params, the data behind them and the workflows stay the same.
 
 What's still missing for the real SOPs:
 
-1. **The real pages.** A walk-through or screenshots of each page: ODeX's three forms and two lists, and the RTGS page. That gives the fields, their order and the selectors.
+1. **The real ODeX pages.** A walk-through or screenshots of ODeX's three forms and two lists, like the ones we have for the RTGS page. That gives the fields, their order and the selectors.
 2. **ODeX login.** A test login, and whether login asks for an OTP or a captcha.
-3. **RTGS page.** Whether it needs a login or a captcha, and whether both payments go in one request.
-4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? The app enters the full amount for each house B/L for now.
+3. **The rest of the RTGS page.** The screenshots stop above the Submit button. We still need: what's below the grid (the Submit button, and any captcha), what the page shows after submitting, and whether the page needs a login. Saving the page as HTML (or a look in the browser's DevTools) would also confirm the selectors, and whether the grid really is Handsontable.
+4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? On ODeX the app enters the full amount for each house B/L for now. On the RTGS page it confirms one deposit against the MBL, as in the screenshot.
 5. **The JSR NOC.** Confirm that `NOC (5).docx` is the "JSR NOC" the SOP sheet asks for on the deposit. It is Hexalog's no-objection to refunding JSR, and the app now writes it.
 6. **The UTR on the deposit.** The sample deposit slip shows UTR …4389, the invoice payment's UTR, not …8497 from the deposit's own receipt. Which one does ODeX expect?
-7. **The mailbox.** Which mailbox the Graph subscription watches for CMA CGM's emails (`do_mailbox`). It should be kept apart from python-brain's `datahub@hexalog.in` pipeline. The demo data uses `customs-ops@Hexalog.in` as a stand-in.
-8. **Sample emails.** The liner's invoice-verified email, Finance's UTR reply, CMA CGM's receipts email and the eDO email, to write their extractors.
+7. **The mailbox.** Which of the Email(s) on the RTGS page the Graph subscription watches, so the receipts reach the app. It should be kept apart from python-brain's `datahub@hexalog.in` pipeline.
+8. **Sample emails.** The liner's invoice-verified email, Finance's UTR reply, CMA CGM's receipt emails and the eDO email, to write their extractors.
 9. **The DO request's documents.** Does ODeX take the combined folder PDF in one Add Row, or does it want one row per document type?
 10. **The refund.** Is the refund request (Counter Process → Request Refund) in scope? It isn't built.

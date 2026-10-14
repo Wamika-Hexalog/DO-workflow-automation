@@ -222,7 +222,7 @@ def new_invoice_page(request: Request) -> Response:
 {pages.select("invoiceType", "Invoice type", INVOICE_TYPES)}
 {pages.field("blNo", "B/L number", hint="The master B/L the liner invoices")}
 {pages.field("containers", "Container numbers", hint="Separate several with commas")}
-{pages.field("email", "Email for the invoice", type="email", hint="The liner emails the invoice here")}
+{pages.field("email", "Email(s) for the invoice", hint="The liner emails the invoice here. At most 3, separated by commas")}
 {pages.field("remarks", "Remarks")}
 <div class="actions"><button class="btn primary" id="submit" type="submit">Request Invoice</button>
 <a class="btn" href="{INVOICES}">Cancel</a></div>
@@ -237,6 +237,7 @@ async def create_invoice_request(request: Request) -> Response:
         return _to_login(request)
     form = await request.form()
     liner, kind, email = forms.text(form, "liner"), forms.text(form, "invoiceType"), forms.text(form, "email")
+    addresses = forms.emails(email)
     bl_no, containers = forms.code(forms.text(form, "blNo")), forms.containers(forms.text(form, "containers"))
     problems = []
     if liner not in LINERS:
@@ -249,8 +250,8 @@ async def create_invoice_request(request: Request) -> Response:
         problems.append("Enter the container numbers.")
     elif bad := [c for c in containers if not forms.CONTAINER.match(c)]:
         problems.append(f"Not a container number: {', '.join(bad)}.")
-    if not forms.EMAIL.match(email):
-        problems.append("Enter the email address for the invoice.")
+    if addresses is None:
+        problems.append("Enter one to three email addresses for the invoice, separated by commas.")
     back = (INVOICES, "Back to Liner Request")
     path = "Request → Liner Request → Request New Invoice"
     try:
@@ -263,7 +264,7 @@ async def create_invoice_request(request: Request) -> Response:
             ref = next_ref(data, "LR", 4)
             data["invoice_requests"].append({
                 "id": secrets.token_hex(6), "ref": ref, "liner": liner, "invoice_type": kind, "bl_no": bl_no,
-                "containers": containers, "email": email, "remarks": forms.text(form, "remarks"),
+                "containers": containers, "email": ", ".join(addresses or []), "remarks": forms.text(form, "remarks"),
                 "status": "Submitted", "created_at": now(), "by": user,
             })
     except forms.Rejected as rejected:

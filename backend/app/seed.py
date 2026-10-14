@@ -28,9 +28,8 @@ SAMPLE_FILES = {
 }
 
 
-# A stand-in until the mailbox the Graph subscription watches is decided. The
-# local portals never send email; they only show what CMA CGM would send.
-DEMO_PROFILE = {"do_mailbox": "customs-ops@Hexalog.in"}
+# The bank account isn't in do_folder.yaml, so the demo makes one up.
+DEMO_PROFILE = {"payer_account_no": "123456789012"}
 
 
 def _paid(n: str, days_ago: int, today: date) -> dict[str, str]:

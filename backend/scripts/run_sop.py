@@ -118,7 +118,7 @@ def run_step(rt: Runtime, args: argparse.Namespace, sop: Path | None) -> int:
         return 1
     ok = True
     for hbl, params in runs:
-        label = f"{step.title} for {'HBL ' + hbl if hbl else 'MBL ' + params.get('mbl_no', '')} (job {shipment.job_no})"
+        label = f"{step.title} for {'HBL ' + hbl if hbl else 'MBL ' + (shipment.data.get('mbl_no') or '')} (job {shipment.job_no})"
         print(f"\n{label}, with:")
         for key, value in params.items():
             print(f"  {key}: {value}")

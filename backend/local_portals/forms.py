@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 from starlette.datastructures import FormData, UploadFile
 
@@ -44,6 +44,23 @@ def amount(value: str) -> float | None:
     except ValueError:
         return None
     return round(number, 2) if number > 0 else None
+
+
+def emails(value: str) -> list[str] | None:
+    """One to three addresses separated by commas, as CMA CGM's pages take them."""
+    found = [part.strip() for part in value.split(",") if part.strip()]
+    if not 1 <= len(found) <= 3 or not all(EMAIL.match(address) for address in found):
+        return None
+    return found
+
+
+def past_dmy_date(value: str) -> str | None:
+    """A DD-MM-YYYY date, today or earlier, as ISO."""
+    try:
+        day = datetime.strptime(value, "%d-%m-%Y").date()
+    except ValueError:
+        return None
+    return day.isoformat() if day <= date.today() else None
 
 
 def past_date(value: str) -> str | None:

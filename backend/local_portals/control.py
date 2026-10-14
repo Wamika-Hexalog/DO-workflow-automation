@@ -19,7 +19,7 @@ router = APIRouter(prefix="/control")
 # Each kind of request: its heading, what answering it means, and whether it can be turned down.
 SECTIONS = (
     ("invoice_requests", "ODeX: DO invoice requests", "Verify and email the invoice", False),
-    ("rtgs_requests", "CMA CGM RTGS: payments entered", "Confirm and email the receipts", False),
+    ("rtgs_requests", "CMA CGM RTGS: payment confirmations", "Find the payment and email the receipt", False),
     ("deposits", "ODeX: security deposits", "Approve the deposit", True),
     ("do_requests", "ODeX: DO requests", "Issue the eDO", True),
 )
@@ -55,11 +55,19 @@ def _details(kind: str, item: dict[str, Any], data: dict[str, Any]) -> str:
         if item.get("invoice_no"):
             lines.append(f"{esc(item['invoice_no'])}: Rs. {pages.money(item['amount'])} {_file(item.get('invoice_file'), data)}")
     elif kind == "rtgs_requests":
-        lines = [esc(item["customer_name"]), f"receipts to {esc(item['email'])}"]
-        if item["invoice_amount"]:
-            lines.append(f"Invoice {esc(item['invoice_no'])}: Rs. {pages.money(item['invoice_amount'])}, UTR {esc(item['invoice_utr'])}")
-        if item["deposit_amount"]:
-            lines.append(f"Deposit: Rs. {pages.money(item['deposit_amount'])}, UTR {esc(item['deposit_utr'])}")
+        lines = [
+            f"{esc(item['company_name'])}: {esc(item['contact_name'])}, {esc(item['contact_number'])}",
+            f"Receipt to {esc(', '.join(item['emails']))}",
+            f"UTR {esc(item['utr'])}, {esc(item['currency'])} {pages.money(item['amount'])}, "
+            f"transferred {esc(item['transfer_date'])} from A/C {esc(item['bank_account'])}",
+        ]
+        lines += [
+            ("Security deposit" if r["security_deposit"] else f"Invoice {esc(r['invoice_no'])}")
+            + f" on {esc(r['bl_no'])}: {pages.money(r['amount'])}"
+            for r in item["invoices"]
+        ]
+        if item.get("advance_amount"):
+            lines.append(f"Advance: {pages.money(item['advance_amount'])}")
         lines += [_file(f, data) for f in item.get("receipts", [])]
     elif kind == "deposits":
         refund = esc(item["refund_to"]) + (f": {esc(item['third_party_name'])}" if item["third_party_name"] else "")

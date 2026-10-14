@@ -106,13 +106,14 @@ def page(
     script: str = "",
     status_code: int = 200,
     body_attrs: str = "",
+    style: str = "",
 ) -> HTMLResponse:
     name = SITE_NAMES[site]
     scripts = (_MENU_SCRIPT if menu else "") + script
     not_real = f"This is not the real {esc(REAL_SITES[site])}: it runs" if site in REAL_SITES else "These pages run"
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)} · {esc(name)} (local demo)</title><style>{_STYLE}</style></head>
+<title>{esc(title)} · {esc(name)} (local demo)</title><style>{_STYLE}{style}</style></head>
 <body{f" {body_attrs}" if body_attrs else ""}>
 <div class="demo" id="demo-banner"><b>Local demo.</b> {not_real} only on this machine, and nothing entered
 here reaches CMA CGM, ODeX or a bank.</div>

@@ -1,31 +1,42 @@
-# Enter the DO invoice and security deposit payments on CMA CGM's RTGS payments
-# page (Finance → RTGS → New Request), after Finance has paid both and shared the
-# UTRs. CMA CGM then emails a receipt for each. Runs once per MBL.
+# Confirm a payment on CMA CGM's "RTGS Confirmation (CMA CGM) - New Request" page
+# (rtgs.india.cma-cgm.com/index.php/Finance/RTGS/NewRequest/). Filed twice per MBL,
+# once for each payment Finance makes:
+#   - the shipment payment: row 1 of the invoice grid has the DO invoice number,
+#     the B/L and the amount;
+#   - the security deposit: row 1 has Security Deposit ticked, the OBL (the master
+#     B/L) and the amount, and no invoice number.
+# CMA CGM then emails a receipt for each to the Email(s) given.
 #
-# Written for the local version (make portals), which sits at the real page's path.
-# The real page's fields aren't known yet; sops/local/README.md says what's needed.
+# Written against the local version (make portals), which copies the real page from
+# screenshots. The selectors are the ones the screenshots show: the placeholders,
+# the labels, and the invoice grid, which looks like Handsontable (its cells take
+# a click, typing and Enter, one at a time). So most steps should carry over. The
+# Submit button and the page after it weren't in the screenshots: those two steps
+# fit the local page only. sops/local/README.md has what's still to check.
 #
-# Params, built by app/portal_params.py (step cma_rtgs_new_request):
-#   cma_rtgs_url    where the site is: DO_CMA_RTGS_URL, the local one by default
-#   mbl_no          job: Master B/L no. (both receipts are against the master bill)
-#   customer_name   job: Consignee as per MBL, who pays CMA CGM
-#   email           fixed details: Mailbox for CMA CGM's emails (the receipts come here)
-#   bank_name       fixed details: Bank that pays CMA CGM
-#   payment_date    job: Payment date, YYYY-MM-DD
-#   invoice_no      job: DO invoice no.
-#   invoice_amount  job: DO invoice amount
-#   invoice_utr     job: UTR for the invoice
-#   deposit_amount  job: Security deposit
-#   deposit_utr     job: UTR for the deposit
+# Params, built by app/portal_params.py (steps cma_rtgs_shipment_payment and
+# cma_rtgs_security_deposit):
+#   cma_rtgs_url      where the site is: DO_CMA_RTGS_URL, the local one by default
+#   company_name      fixed details: Forwarder
+#   contact_name      fixed details: Contact name on CMA CGM's RTGS page
+#   contact_number    fixed details: Contact number on CMA CGM's RTGS page
+#   emails            fixed details: Emails for CMA CGM's invoice and receipts (at most 3)
+#   utr               job: UTR for the shipment payment, or UTR for the security deposit
+#   bank_account      fixed details: Bank account no. that pays CMA CGM
+#   amount            job: DO invoice amount, or Security deposit, as 54720.68
+#   transfer_date     job: Date of transfer, as DD-MM-YYYY
+#   security_deposit  "yes" for the security deposit, empty for the shipment payment
+#   invoice_no        job: DO invoice no.; empty for the security deposit
+#   bl_no             job: Master B/L no.
 #
 # Reads back: cma_rtgs_request_ref
 metadata:
   name: "Local CMA CGM RTGS - New Request"
-  version: "0.1"
+  version: "0.2"
 
 steps:
   - action: goto
-    description: Open the New RTGS Request page
+    description: Open the RTGS Confirmation page
     method: playwright
     url: "{params.cma_rtgs_url}/index.php/Finance/RTGS/NewRequest/"
     wait_for: domcontentloaded
@@ -33,74 +44,161 @@ steps:
   - action: wait_for_selector
     description: Wait for the form
     method: playwright
-    selector: "#rtgs-form"
+    selector: "input[placeholder='Company Name']"
+
+  # The same page serves CMA CGM's other lines (Change Carrier). Never file
+  # CMA CGM's payment against another carrier.
+  - action: execute_script
+    description: Make sure the page is CMA CGM's
+    method: playwright
+    script: |
+      () => {
+        if (!document.body.innerText.includes('RTGS Confirmation (CMA CGM)')) {
+          throw new Error('This is not the CMA CGM RTGS page: choose CMA CGM under Change Carrier');
+        }
+      }
 
   - action: fill
-    description: Enter the master B/L number
+    description: Enter the company name
     method: playwright
-    selector: "#blNo"
-    value_from: params.mbl_no
+    selector: "input[placeholder='Company Name']"
+    value_from: params.company_name
 
   - action: fill
-    description: Enter who paid
+    description: Enter the contact number
     method: playwright
-    selector: "#customerName"
-    value_from: params.customer_name
+    selector: "input[placeholder='Contact Number']"
+    value_from: params.contact_number
 
   - action: fill
-    description: Enter the mailbox the receipts go to
+    description: Enter the contact name
     method: playwright
-    selector: "#email"
-    value_from: params.email
+    selector: "input[placeholder='Contact Name']"
+    value_from: params.contact_name
 
   - action: fill
-    description: Enter the paying bank
+    description: Enter the emails the receipt goes to
     method: playwright
-    selector: "#bankName"
-    value_from: params.bank_name
+    selector: "input[placeholder='Email']"
+    value_from: params.emails
 
   - action: fill
-    description: Enter the payment date
+    description: Enter the UTR number
     method: playwright
-    selector: "#paymentDate"
-    value_from: params.payment_date
+    selector: "input[placeholder='UTR Number']"
+    value_from: params.utr
 
   - action: fill
-    description: Enter the DO invoice number
+    description: Enter the bank account the payment came from
     method: playwright
-    selector: "#invoiceNo"
-    value_from: params.invoice_no
+    selector: "input[placeholder='Your Bank A/C Number']"
+    value_from: params.bank_account
+
+  - action: execute_script
+    description: Choose INR as the currency
+    method: playwright
+    script: |
+      () => {
+        const select = [...document.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.text.includes('INR')));
+        if (!select) throw new Error('The page has no currency list with INR');
+        select.value = [...select.options].find((o) => o.text.includes('INR')).value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
   - action: fill
-    description: Enter the invoice amount
+    description: Enter the amount transferred
     method: playwright
-    selector: "#invoiceAmount"
-    value_from: params.invoice_amount
+    selector: "input[placeholder='Amount Transfered']"
+    value_from: params.amount
 
   - action: fill
-    description: Enter the UTR of the invoice payment
+    description: Enter the date of transfer
     method: playwright
-    selector: "#invoiceUtr"
-    value_from: params.invoice_utr
+    selector: "xpath=//*[contains(text(), 'Date of Transfer')]/following::input[1]"
+    value_from: params.transfer_date
 
-  - action: fill
-    description: Enter the security deposit amount
+  # Closes a date picker that opened on the field, so it can't cover the grid.
+  - action: press
+    description: Close the date picker
     method: playwright
-    selector: "#depositAmount"
-    value_from: params.deposit_amount
+    selector: "xpath=//*[contains(text(), 'Date of Transfer')]/following::input[1]"
+    key: Escape
 
-  - action: fill
-    description: Enter the UTR of the deposit payment
-    method: playwright
-    selector: "#depositUtr"
-    value_from: params.deposit_utr
-
-  # The submit and the check are separate steps: the agent retries a failed step,
-  # and only the check is safe to repeat.
+  # Row 1 of the invoice grid. Its columns: Security Deposit, Invoice Number,
+  # BL Number, Amount, Remarks. Each cell takes a click, the value, then Enter.
   - action: click
-    description: Submit the payments
+    description: Tick Security Deposit on row 1
     method: playwright
-    selector: "#submit"
+    condition: params.security_deposit
+    selector: ".ht_master .htCore tbody tr:nth-child(1) input.htCheckboxRendererInput"
+
+  - action: type
+    description: Enter the invoice number on row 1
+    method: playwright
+    condition: params.invoice_no
+    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(2)"
+    value_from: params.invoice_no
+    delay: 40
+
+  - action: press
+    description: Keep the invoice number
+    method: playwright
+    condition: params.invoice_no
+    key: Enter
+
+  - action: type
+    description: Enter the BL number on row 1
+    method: playwright
+    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(3)"
+    value_from: params.bl_no
+    delay: 40
+
+  - action: press
+    description: Keep the BL number
+    method: playwright
+    key: Enter
+
+  - action: type
+    description: Enter the amount on row 1
+    method: playwright
+    selector: ".ht_master .htCore tbody tr:nth-child(1) > td:nth-of-type(4)"
+    value_from: params.amount
+    delay: 40
+
+  - action: press
+    description: Keep the amount
+    method: playwright
+    key: Enter
+
+  # The grid is the easiest part to get wrong, so it's read back before submitting.
+  - action: execute_script
+    description: Check row 1 of the invoice grid
+    method: playwright
+    script_args:
+      security_deposit: params.security_deposit
+      invoice_no: params.invoice_no
+      bl_no: params.bl_no
+      amount: params.amount
+    script: |
+      ({ security_deposit, invoice_no, bl_no, amount }) => {
+        const row = document.querySelector('.ht_master .htCore tbody tr:nth-child(1)');
+        const cell = (n) => row.querySelector(`td:nth-of-type(${n})`).textContent.trim();
+        const ticked = row.querySelector('input.htCheckboxRendererInput').checked;
+        const wrong = [];
+        if (ticked !== Boolean(security_deposit)) wrong.push(`Security Deposit is ${ticked ? '' : 'not '}ticked`);
+        if (cell(2) !== invoice_no) wrong.push(`Invoice Number reads "${cell(2)}"`);
+        if (cell(3) !== bl_no) wrong.push(`BL Number reads "${cell(3)}"`);
+        if (Number(cell(4).replace(/,/g, '')) !== Number(amount)) wrong.push(`Amount reads "${cell(4)}"`);
+        if (wrong.length) throw new Error(`Row 1 of the invoice grid is wrong: ${wrong.join('; ')}`);
+      }
+
+  # From here on, the local page only: the screenshots stop above the Submit
+  # button. The submit and the check are separate steps, since the agent retries
+  # a failed step and only the check is safe to repeat.
+  - action: click
+    description: Submit
+    method: playwright
+    selector: "button:text-is('Submit')"
 
   - action: wait_for_selector
     description: Wait for the site's answer
@@ -115,7 +213,7 @@ steps:
       () => {
         const outcome = document.querySelector('#outcome');
         if (outcome.dataset.status !== 'accepted') {
-          throw new Error(`The RTGS site turned the payments down: ${outcome.dataset.message}`);
+          throw new Error(`The RTGS page turned the payment down: ${outcome.dataset.message}`);
         }
         return { cma_rtgs_request_ref: outcome.dataset.reference };
       }

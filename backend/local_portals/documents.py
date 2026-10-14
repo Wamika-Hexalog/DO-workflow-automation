@@ -191,19 +191,13 @@ def invoice_pdf(
 
 
 def receipt_pdf(
-    *, kind: str, receipt_no: str, on: str, customer: str, invoice_no: str, bl_no: str, amount: float,
-    utr: str, paid_on: str, bank: str,
+    *, kind: str, receipt_no: str, on: str, customer: str, lines: Sequence[tuple[str, str, float]], total: float,
+    utr: str, paid_on: str, account: str,
 ) -> bytes:
-    """A payment receipt, laid out like CMA CGM's: one for the DO invoice, and one,
-    with no invoice number, for the security deposit."""
-    paid = _grid(
-        [
-            ["Invoice Number", "BL Number", "Invoice Amount", "Amount Received"],
-            [invoice_no or "-", bl_no, f"{money(amount)} INR", f"{money(amount)} INR"],
-        ],
-        [44 * mm, 40 * mm, 38 * mm, 40 * mm],
-        right=[2, 3],
-    )
+    """A payment receipt, laid out like CMA CGM's: one per RTGS confirmation, with a
+    line for each invoice it pays. A security deposit's line has no invoice number."""
+    rows: list[list[object]] = [["Invoice Number", "BL Number", "Invoice Amount", "Amount Received"]]
+    rows += [[invoice_no or "-", bl_no, f"{money(amount)} INR", f"{money(amount)} INR"] for invoice_no, bl_no, amount in lines]
     story = [
         _p(_e(kind.upper()), TITLE),
         _p("As CMA CGM would issue it · local demo", SUBTITLE),
@@ -215,12 +209,12 @@ def receipt_pdf(
             ("Collected by", "RTGS/NEFT Transfer"),
         ]),
         Spacer(0, 6 * mm),
-        paid,
+        _grid(rows, [44 * mm, 40 * mm, 38 * mm, 40 * mm], right=[2, 3]),
         Spacer(0, 5 * mm),
-        _p(f"<b>RTGS/NEFT details:</b> {_e(day(paid_on))} / UTR {_e(utr)} / {_e(bank)}"),
+        _p(f"<b>RTGS/NEFT details:</b> {_e(day(paid_on))} / {_e(utr)} / {_e(account)}"),
         _p("<b>Payment mode:</b> RTGS / NEFT"),
-        _p(f"<b>Amount in words:</b> {_e(rupees_in_words(amount))}"),
-        _p(f"<b>Total amount:</b> {_e(money(amount))} INR"),
+        _p(f"<b>Amount in words:</b> {_e(rupees_in_words(total))}"),
+        _p(f"<b>Total amount:</b> {_e(money(total))} INR"),
         Spacer(0, 5 * mm),
         _p("Electronic receipt: no signature or stamp required.", SMALL),
     ]

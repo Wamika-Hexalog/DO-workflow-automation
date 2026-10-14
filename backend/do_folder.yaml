@@ -32,8 +32,14 @@ profile_fields:
     default: "A-32, Genesis Building, Ground floor, Mohan Coop Industrial Estate, Mathura Road, New Delhi – 110044"
   - { key: odex_liner, label: Liner on ODeX, default: CMA CGM }
   - { key: payer_bank, label: Bank that pays CMA CGM, default: ICICI BANK }
-  # Where CMA CGM's emails go: the mailbox the Graph subscription watches.
-  - { key: do_mailbox, label: Mailbox for CMA CGM's emails, optional: true }
+  # Who confirms payments on CMA CGM's RTGS page, and where its receipts and the
+  # DO invoice are emailed (at most 3, comma-separated). The Graph subscription
+  # reads them from there.
+  - { key: rtgs_contact_name, label: Contact name on CMA CGM's RTGS page, default: Kishan Rawat }
+  - { key: rtgs_contact_number, label: Contact number on CMA CGM's RTGS page, default: "8802757004" }
+  - { key: do_mailbox, label: Emails for CMA CGM's invoice and receipts, default: "kishan@hexalog.in,customs-ops@Hexalog.in" }
+  # Kept out of this file: entered once in the fixed details. Only the RTGS page needs it.
+  - { key: payer_account_no, label: Bank account no. that pays CMA CGM, code: true, optional: true }
 
 # Entered once per shipment (one MBL) and printed by the letters that use them.
 shipment_groups:
@@ -78,9 +84,9 @@ shipment_groups:
   - title: Payment and deposit
     fields:
       - { key: deposit_amount, label: Security deposit (₹), type: number, optional: true, default: "40000" }
-      - { key: payment_utr, label: UTR for the invoice, code: true, optional: true }
-      - { key: deposit_utr, label: UTR for the deposit, code: true, optional: true }
-      - { key: payment_date, label: Payment date, type: date, optional: true }
+      - { key: payment_utr, label: UTR for the shipment payment, code: true, optional: true }
+      - { key: deposit_utr, label: UTR for the security deposit, code: true, optional: true }
+      - { key: payment_date, label: Date of transfer, type: date, optional: true }
       - key: deposit_refund_to
         label: Deposit refunded to
         type: select

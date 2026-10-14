@@ -1,18 +1,19 @@
 """What the browser agent types into each portal page, taken from the database.
 
-Six steps of the CMA CGM process happen on websites (the SOP sheet of DO PROCESS
-FLOW E2E.xlsx). For each one this module names the SOP that does it, and builds
-that SOP's params from the job's fields, the fixed details and the job's
+Seven steps of the CMA CGM process happen on websites (the SOP sheet of DO
+PROCESS FLOW E2E.xlsx). For each one this module names the SOP that does it, and
+builds that SOP's params from the job's fields, the fixed details and the job's
 documents. A step won't start while something it needs is missing, and the
 error names everything that is.
 
-    step                     site      runs once per   what the SOP gets
-    odex_request_invoice     ODeX      MBL             liner, MBL, containers, mailbox
-    cma_rtgs_new_request     CMA RTGS  MBL             MBL, payer, mailbox, bank, both payments
-    odex_deposit_new         ODeX      house bill      deposit and its UTR, bank, refund, NOC, receipt
-    odex_deposit_status      ODeX      house bill      where to save the deposit slip
-    odex_do_request_new      ODeX      house bill      HBL, DO and delivery type, folder PDF
-    odex_do_request_status   ODeX      house bill      where to save the eDO
+    step                        site      runs once per   what the SOP gets
+    odex_request_invoice        ODeX      MBL             liner, MBL, containers, emails
+    cma_rtgs_shipment_payment   CMA RTGS  MBL             contact details, the payment, invoice no. and MBL
+    cma_rtgs_security_deposit   CMA RTGS  MBL             contact details, the payment, MBL as the OBL
+    odex_deposit_new            ODeX      house bill      deposit and its UTR, bank, refund, NOC, receipt
+    odex_deposit_status         ODeX      house bill      where to save the deposit slip
+    odex_do_request_new         ODeX      house bill      HBL, DO and delivery type, folder PDF
+    odex_do_request_status      ODeX      house bill      where to save the eDO
 
 sops/local/README.md lists every param with the field it comes from.
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,8 @@ ODEX = "odex"
 CMA_RTGS = "cma_rtgs"
 
 REQUEST_INVOICE = "odex_request_invoice"
-RTGS_PAYMENT = "cma_rtgs_new_request"
+RTGS_SHIPMENT = "cma_rtgs_shipment_payment"
+RTGS_DEPOSIT = "cma_rtgs_security_deposit"
 DEPOSIT = "odex_deposit_new"
 DEPOSIT_STATUS = "odex_deposit_status"
 DO_REQUEST = "odex_do_request_new"
@@ -94,6 +97,16 @@ class _Job:
             return self._lack(f"{field.label} (fixed details)" if field.scope == "profile" else field.label)
         return _as_text(field, value)
 
+    def money(self, key: str) -> str:
+        """An amount as CMA CGM's RTGS page shows it: 54720.68, 40000.00."""
+        value = self.field(key)
+        return f"{float(value):.2f}" if value else ""
+
+    def day_month_year(self, key: str) -> str:
+        """A date as CMA CGM's RTGS page takes it: 03-10-2026."""
+        value = self.field(key)
+        return date.fromisoformat(value).strftime("%d-%m-%Y") if value else ""
+
     def document(self, doc_key: str) -> str:
         """A PDF copy of a document attached to the DO folder, named for what it is,
         since the portal shows the name of the file it was given."""
@@ -145,21 +158,33 @@ def _request_invoice(job: _Job, hbl: str | None) -> dict[str, str]:
     }
 
 
-def _rtgs_payment(job: _Job, hbl: str | None) -> dict[str, str]:
+def _rtgs(job: _Job, deposit: bool) -> dict[str, str]:
+    """CMA CGM's RTGS Confirmation page, filed once for each payment Finance makes."""
     return {
-        "mbl_no": job.field("mbl_no"),
-        # The consignee on the MBL pays CMA CGM.
-        "customer_name": job.field("consignee_mbl"),
-        # CMA CGM emails both receipts here.
-        "email": job.field("do_mailbox"),
-        "bank_name": job.field("payer_bank"),
-        "payment_date": job.field("payment_date"),
-        "invoice_no": job.field("do_invoice_no"),
-        "invoice_amount": job.field("do_invoice_amount"),
-        "invoice_utr": job.field("payment_utr"),
-        "deposit_amount": job.field("deposit_amount"),
-        "deposit_utr": job.field("deposit_utr"),
+        # Contact Details: who confirms, and where the receipt is emailed.
+        "company_name": job.field("forwarder_name"),
+        "contact_name": job.field("rtgs_contact_name"),
+        "contact_number": job.field("rtgs_contact_number"),
+        "emails": job.field("do_mailbox"),
+        # Payment Details: the payment as the bank made it.
+        "utr": job.field("deposit_utr" if deposit else "payment_utr"),
+        "bank_account": job.field("payer_account_no"),
+        "amount": job.money("deposit_amount" if deposit else "do_invoice_amount"),
+        "transfer_date": job.day_month_year("payment_date"),
+        # Invoice Details, row 1: the DO invoice, or a ticked Security Deposit
+        # against the OBL, which is the master bill.
+        "security_deposit": "yes" if deposit else "",
+        "invoice_no": "" if deposit else job.field("do_invoice_no"),
+        "bl_no": job.field("mbl_no"),
     }
+
+
+def _rtgs_shipment(job: _Job, hbl: str | None) -> dict[str, str]:
+    return _rtgs(job, deposit=False)
+
+
+def _rtgs_deposit(job: _Job, hbl: str | None) -> dict[str, str]:
+    return _rtgs(job, deposit=True)
 
 
 def _deposit(job: _Job, hbl: str | None) -> dict[str, str]:
@@ -230,8 +255,12 @@ STEPS: dict[str, PortalStep] = {
             _local("odex/request_invoice.yaml"), False, ("odex_invoice_request_ref",), _request_invoice,
         ),
         PortalStep(
-            RTGS_PAYMENT, "Entering the payments on CMA CGM's RTGS site", CMA_RTGS,
-            _local("cma_rtgs/new_request.yaml"), False, ("cma_rtgs_request_ref",), _rtgs_payment,
+            RTGS_SHIPMENT, "Confirming the shipment payment on CMA CGM's RTGS page", CMA_RTGS,
+            _local("cma_rtgs/new_request.yaml"), False, ("cma_rtgs_request_ref",), _rtgs_shipment,
+        ),
+        PortalStep(
+            RTGS_DEPOSIT, "Confirming the security deposit on CMA CGM's RTGS page", CMA_RTGS,
+            _local("cma_rtgs/new_request.yaml"), False, ("cma_rtgs_request_ref",), _rtgs_deposit,
         ),
         PortalStep(
             DEPOSIT, "Raising the security deposit on ODeX", ODEX,

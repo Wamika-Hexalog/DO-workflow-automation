@@ -9,7 +9,7 @@
 #   liner        fixed details: Liner on ODeX
 #   mbl_no       job: Master B/L no. (CMA CGM invoices the master bill)
 #   containers   job: Container nos., comma separated
-#   email        fixed details: Mailbox for CMA CGM's emails (the invoice comes here)
+#   email        fixed details: Emails for CMA CGM's invoice and receipts (the invoice comes here)
 #   job_no       the job number, entered as the remark
 #
 # Reads back: odex_invoice_request_ref
