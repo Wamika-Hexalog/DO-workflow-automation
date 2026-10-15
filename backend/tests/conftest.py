@@ -24,12 +24,13 @@ HBL = "MSEC260803047251"
 
 
 def make_pdf(*pages: str) -> bytes:
-    """A PDF standing in for an emailed document: the given line on each page,
+    """A PDF standing in for an emailed document: the given lines on each page,
     above the kind of boilerplate every real one carries."""
     buffer = io.BytesIO()
     sheet = canvas.Canvas(buffer)
     for text in pages:
-        sheet.drawString(72, 720, text)
+        for row, line in enumerate(text.split("\n")):
+            sheet.drawString(72, 720 - 14 * row, line)
         sheet.drawString(72, 120, "CMA CGM AGENCIES (INDIA) PVT LTD, ONE INTERNATIONAL CENTRE, MUMBAI 400013")
         sheet.showPage()
     sheet.save()

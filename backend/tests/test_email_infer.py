@@ -28,6 +28,16 @@ Container - ECMU1234565
 Instrument No. - 100000000001
 Status - Deposit Approved
 """
+# CMA CGM's Security Receipt, as its text reads: the number on the line under "RECEIPT".
+SECURITY_RECEIPT = """Received From:
+HEXALOG GLOBAL SUPPLY CHAINSPVT LTD
+RECEIPT
+90000002
+Date: 03-OCT-2026
+Collected By: RTGS/NEFT Transfer
+Invoice Number BL Number Invoice Amount Amount Received
+- SHZ1234567 40,000.00 INR 40,000.00 INR
+Electronic Receipt - No Signature/Stamp required."""
 DRAFT = """Please find the attached revised Drafts documents for your review & approval.
 MBL and HBL & Invoice Number.
 MBL HBL Invoice Number
@@ -136,6 +146,22 @@ def test_a_marked_rtgs_forward_fills_the_fields_and_the_receipt_slot_with_no_cod
     assert after["values"]["payment_utr"] == "100000000001"
     assert after["values"]["do_invoice_no"] == "INVDEMO000001"
     assert slot(after, "do_receipt")["file"] is not None
+
+
+def test_the_deposits_rtgs_forward_gives_the_cma_ireceipt_no_from_its_security_receipt(
+    api: TestClient, engine: Engine, client: RecordingInngest, inbox: dict  # noqa: F811
+) -> None:
+    # Protects: the number ODeX's deposit asks for is read off the Security Receipt the RTGS mail brings.
+    # Fails if a file attached to a slot the mail names isn't read, or CMA CGM's "RECEIPT" layout isn't.
+    shipment = new_shipment(api, mbl_no="SHZ1234567", hbl_nos="WOLSZSE12345678A", containers="")
+    inbox["m1"] = mail(RTGS_DEPOSIT, subject="#DOHACK Fw: CMA CGM India - RTGS/NEFT Payment Confirmation - Request Id: 10000002")
+    ATTACHMENTS["m1"] = [("Receipt.pdf", SECURITY_RECEIPT)]
+    receive(client)
+    engine.run()
+    after = api.get(f"/api/shipments/{shipment['id']}").json()
+    assert after["values"]["deposit_utr"] == "100000000002"
+    assert after["values"]["security_receipt_no"] == "90000002"
+    assert slot(after, "security_receipt")["file"] is not None
 
 
 def test_a_marked_security_slip_goes_to_the_job_that_has_that_house_bill(

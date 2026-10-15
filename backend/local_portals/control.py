@@ -74,11 +74,13 @@ def _details(kind: str, item: dict[str, Any], data: dict[str, Any]) -> str:
             lines.append(f"Advance: {pages.money(item['advance_amount'])}")
         lines += [_file(f, data) for f in item.get("receipts", [])]
     elif kind == "deposits":
-        refund = esc(item["refund_to"]) + (f": {esc(item['third_party_name'])}" if item["third_party_name"] else "")
+        account = item["refund_account"]
         lines = [
-            f"Rs. {pages.money(item['amount'])}, UTR {esc(item['utr'])}, {esc(item['bank_name'])}, paid {esc(item['payment_date'])}",
-            f"Refund to {refund}",
-            " ".join(filter(None, [_file(item.get("receipt_file"), data), _file(item.get("noc_file"), data)])),
+            f"MBL {esc(item['mbl_no'])}: Rs. {pages.money(item['amount'])}, UTR {esc(item['utr'])}, {esc(item['bank_name'])}, "
+            f"paid {esc(item['payment_date'])}, CMA iReceipt no. {esc(item['ireceipt_no'])}",
+            f"Refund to {esc(item['refund_to'])} {esc(item['refund_to_name'])}: A/C {esc(account['number'])}, "
+            f"{esc(account['bank'])}, IFSC {esc(account['ifsc'])}",
+            " ".join(f"{esc(a['doc_type'])}: {_file(a['file'], data)}" for a in item["attachments"]),
             _file(item.get("slip_file"), data),
         ]
     else:

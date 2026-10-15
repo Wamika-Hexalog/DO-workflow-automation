@@ -1,12 +1,14 @@
 """The local ODeX's pages that the team's step-by-step guides show: the invoice
-("Delivery Order Request-First step 1.docx") and the DO request ("DO final steps
-corrected.docx"). Each is the guide's screenshot, with live elements over only the
-buttons and fields the process uses; the rest is just the picture.
+("Delivery Order Request-First step 1.docx"), the DO request ("DO final steps
+corrected.docx") and the security deposit ("Security deposit number 1.docx"). Each is
+the guide's screenshot, with live elements over only the buttons and fields the process
+uses; the rest is just the picture.
 
     guide step  page                    live over the picture
     (login)     login                   User ID, password, captcha and its refresh, Sign in and
                                         Reset; then the company and Confirm Sign In
-    1-2         services (home)         ePayment's location and its arrow; Counter Process's arrow
+    1-2         services (home)         ePayment's location and its arrow; Counter Process's
+                                        location and its arrow
     3, 6        ePayment's main page    Requests → Liner Requests; Documents → DO Request; the EDO
                                         DETAILS search
     4           Liner Requests          Request New Invoice; our requests, over the picture's rows
@@ -18,6 +20,13 @@ buttons and fields the process uses; the rest is just the picture.
                                         search; our requests, over the picture's rows
     DO 4-5      DO Request (new)        the BL information, Add Row with its document and file,
                                         SAVE and BACK
+    deposit 1   Counter Process         Security Deposit → Security Deposit & Refund
+    deposit 2   Search Deposit/Refund   the BL and status search, NEW - DEPOSIT and View; our
+                                        requests, over the picture's rows
+    deposit 3   Security Deposit And    the requestor, payment and refund details, and the NOC;
+                Refund Request          what ODeX fills in from the BL; SUBMIT and BACK below
+                                        the picture, which doesn't show them
+    deposit 4   the request, viewed     every value ODeX keeps, with its Request No. and Status
 
 The screenshots show a real ODeX account, so they stay out of git: `make assets` takes
 them from the guides into assets/private/odex/. The guides have no login page, so its
@@ -54,6 +63,8 @@ EPAYMENT = "/odex/epayment"
 LINER_REQUESTS = "/odex/epayment/liner-requests"
 BL_STATUS = "/odex/epayment/bl-status"
 DO_REQUESTS = "/odex/epayment/do-request"
+COUNTER_PROCESS = "/odex/counter-process"
+DEPOSITS = "/odex/counter-process/deposit-refund"
 LOCATION_COOKIE = "odex_location"
 
 # The locations ODeX's services offer, as the guide's step 2 shows them. ICD
@@ -82,6 +93,22 @@ DO_DOCUMENTS = (
 )
 SINGLE_PDF = "All document in a single pdf"
 ROW_DOCUMENTS = (SINGLE_PDF, *DO_DOCUMENTS)
+# The security deposit's choices. The guide shows only its own picks (Non-ODeX-RTGS,
+# ThirdParty and the CHA, the NOC); the other options are a guess.
+DEPOSIT_PAYMENT_MODES = ("Non-ODeX-RTGS", "Non-ODeX-DD/PO", "ODeX-Payment")
+REFUND_TO = ("Consignee", "ThirdParty")
+NOC_DOCUMENT = "NOC (on the letter head of MBL consignee)"
+DEPOSIT_DOCUMENTS = (NOC_DOCUMENT, "Others")
+DEPOSIT_STATUSES = ("Draft", "Deposit Requested", "Deposit Approved", "Refund Requested", "Rejected")
+# Whom ODeX can refund a deposit to, and the PAN it fills in for each (demo numbers).
+REFUND_PARTIES = {"JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED": "AAACJ0000A", ACCOUNT_NAME: "AAACD0000A"}
+# What ODeX fills in once the BL is entered, from the IGM: the office's final place of
+# delivery, and CMA CGM's deposit and damage liability per container (the guide's 45'
+# container). The local ODeX has no IGM, so its consignee and containers are "As per IGM".
+FPOD = {"NCR": "INTKD6-TUGHLAKABAD"}
+DEPOSIT_PER_CONTAINER = 40000
+DAMAGE_LIABILITY = 20000
+AS_PER_IGM = "As per IGM"
 
 
 @dataclass(frozen=True)
@@ -107,9 +134,16 @@ STATUS = Screen("bl-status.png", 1430, 688, 13)
 VIEW_INVOICE = Screen("view-invoice.png", 1897, 955, 17.5)
 DO_REQUEST_LIST = Screen("do-requests.png", 1430, 605, 11.5)
 DO_REQUEST_FORM = Screen("do-request.png", 1918, 933, 12)
+COUNTER = Screen("counter-process.png", 1430, 679, 13)
+DEPOSIT_LIST = Screen("deposit-requests.png", 1918, 627, 12.5)
+DEPOSIT_FORM = Screen("new-deposit.png", 1912, 859, 12.5)
+DEPOSIT_VIEW = Screen("view-deposit.png", 1870, 957, 12.5)
 SCREENS = {
     s.file: s
-    for s in (LOGIN, SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE, DO_REQUEST_LIST, DO_REQUEST_FORM)
+    for s in (
+        LOGIN, SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE, DO_REQUEST_LIST, DO_REQUEST_FORM,
+        COUNTER, DEPOSIT_LIST, DEPOSIT_FORM, DEPOSIT_VIEW,
+    )
 }
 
 # The real login page's parts, by their ids there, and where they sit on its
@@ -561,11 +595,14 @@ def services(request: Request) -> Response:
     if current_user(request) is None:
         return to_login(request)
     s = SERVICES
-    live = f"""<form id="epayment-form" action="{EPAYMENT}" method="get">
+    live = f"""<form id="counter-form" action="{COUNTER_PROCESS}" method="get">
+<select id="counter-location" name="location" class="live field" style="{s.at(72, 243, 249, 273)}">{_options(LOCATIONS, _location(request), "")}</select>
+<button id="counter-go" class="live hot" type="submit" title="Counter Process" style="{s.at(263, 242, 295, 274)}"></button>
+</form>
+<form id="epayment-form" action="{EPAYMENT}" method="get">
 <select id="epayment-location" name="location" class="live field" style="{s.at(412, 243, 589, 273)}">{_options(LOCATIONS, _location(request), "")}</select>
 <button id="epayment-go" class="live hot" type="submit" title="ePayment" style="{s.at(603, 242, 635, 274)}"></button>
-</form>
-<a id="counter-go" class="live hot" title="Counter Process" href="/odex/counter-process/deposit-refund" style="{s.at(263, 242, 295, 274)}"></a>"""
+</form>"""
     return _page("Service", _shot(request, s, live))
 
 
@@ -1121,3 +1158,423 @@ async def create_do_request(request: Request) -> Response:
     except forms.Rejected as rejected:
         return _do_request_page(request, values, rejected.problems)
     return RedirectResponse(f"{DO_REQUESTS}?submitted={item_id}", status_code=303)
+
+
+# The security deposit: the team's third guide ("Security deposit number 1") --------------
+
+# Its look, over the four screenshots.
+_DEPOSIT_STYLE = """
+#security-deposit-menu { padding:0; display:flex; align-items:center; }
+#security-deposit-menu a { flex:1; padding:0 0 0 calc(23 * var(--px)); line-height:calc(34 * var(--px)); white-space:nowrap; }
+.deposit-list { background:#fff; font-family:Arial,Helvetica,sans-serif; color:#333; }
+.deposit-list.as-pictured { background:transparent; }
+.deposit-list .dep-row { display:grid; height:calc(24 * var(--px)); align-items:center; border-bottom:1px solid #e6e6e6;
+  grid-template-columns:calc(71 * var(--px)) calc(272 * var(--px)) calc(271 * var(--px)) repeat(3, calc(202 * var(--px)))
+    calc(237 * var(--px)) calc(140 * var(--px)) 1fr; }
+.deposit-list .dep-row span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:calc(6 * var(--px)); }
+.deposit-list .row-select { margin:0 0 0 calc(8 * var(--px)); width:calc(13 * var(--px)); height:calc(13 * var(--px)); }
+.deposit-list .dep-count { padding:calc(12 * var(--px)) 0 0 calc(274 * var(--px)); }
+.deposit-list a { color:#1a6fb5; }
+.live.field.box { border:max(1px,var(--px)) solid #8a8a8a; resize:none; line-height:1.3;
+  padding:calc(2 * var(--px)) calc(4 * var(--px)); }
+.live.field:disabled { background:#fff; color:#999; opacity:1; }  /* Chrome dims a disabled select: the picture would show through */
+.live.cover.bl { color:#1e9bd7; font-weight:700; }
+.deposit-actions { display:flex; justify-content:center; gap:10px; margin:12px auto 32px; }
+.odex-btn { background:#644863; color:#fff; border:0; border-radius:5px; padding:6px 12px; cursor:pointer;
+  font:14px Arial,Helvetica,sans-serif; text-decoration:none; }
+.odex-btn:hover { background:#4f3850; }
+"""
+
+# Step 2: View opens the ticked request.
+_DEPOSIT_LIST_SCRIPT = """
+document.getElementById('view').addEventListener('click', (event) => {
+  const ticked = document.querySelector('#deposit-rows .row-select:checked');
+  if (!ticked) {
+    document.getElementById('list-message').hidden = false;
+    return;
+  }
+  location.href = event.currentTarget.dataset.view + encodeURIComponent(ticked.value);
+});
+"""
+
+# Step 3: ODeX fills in the FPOD, Office Location, Consignee Name and Container Details once
+# the BL No. and MBL No. are left, and the Refund To PAN once the third party is chosen.
+_DEPOSIT_FORM_SCRIPT = """
+const form = document.getElementById('deposit-form');
+const parties = JSON.parse(form.dataset.parties);
+const refundTo = document.getElementById('refund-to');
+const party = document.getElementById('refund-to-name');
+let asked = 0;
+
+const fill = (id, value) => {
+  const field = document.getElementById(id);
+  field.value = value || '';
+  field.setAttribute('value', field.value);
+};
+
+async function lookUp() {
+  const ask = ++asked;
+  delete form.dataset.details;
+  const query = new URLSearchParams({
+    bl_no: document.getElementById('bl-no').value.trim(), mbl_no: document.getElementById('mbl-no').value.trim(),
+  });
+  const answer = await fetch(`${form.dataset.lookup}?${query}`);
+  const found = answer.ok ? await answer.json() : null;
+  if (ask !== asked || !found) return;  // a later look-up has taken over
+  fill('fpod', found.fpod);
+  fill('office-location', found.office_location);
+  fill('consignee-name', found.consignee);
+  document.getElementById('container-rows').innerHTML = found.containers;
+  if (found.known) form.dataset.details = 'filled';
+}
+
+function showParty() {
+  const third = refundTo.value === 'ThirdParty';
+  party.disabled = !third;
+  if (!third) party.value = '';
+  fill('refund-to-pan', third ? parties[party.value] : '');
+}
+
+document.getElementById('bl-no').addEventListener('change', lookUp);
+document.getElementById('mbl-no').addEventListener('change', lookUp);
+refundTo.addEventListener('change', showParty);
+party.addEventListener('change', showParty);
+showParty();
+"""
+
+DEPOSIT_LIST_ROWS = 8  # the rows shown at once, newest first
+# Container Details on the new deposit's screenshot: where each column's text starts.
+# The View screenshot has the table 6 px to the left and 72 px lower.
+_CONTAINER_COLUMNS = (
+    ("no", 23), ("size", 179), ("type", 342), ("cargo", 510), ("deposit", 644), ("liability", 822),
+    ("returned", 1005), ("damage_cost", 1243), ("damage_status", 1721),
+)
+
+
+def _bl_details(location: str, bl_no: str, mbl_no: str) -> dict[str, Any]:
+    """What ODeX fills in from the IGM once the BL No. and MBL No. are entered. The local
+    ODeX has no IGM: it knows its office's place of delivery, and nothing of the consignee
+    or the containers."""
+    known = bool(forms.BL.match(bl_no) and forms.BL.match(mbl_no))
+    return {
+        "known": known,
+        "fpod": FPOD.get(location, "") if known else "",
+        "office_location": location if known else "",
+        "consignee": AS_PER_IGM if known else "",
+    }
+
+
+def _containers(s: Screen, known: bool, *, dx: int = 0, dy: int = 0) -> str:
+    """Container Details over the picture's sample row: one row standing in for the IGM's
+    containers, the count and the totals, or nothing before the BL is entered."""
+    cover = f'<div class="live cover" style="{s.at(16 + dx, 315 + dy, 1890 + dx, 378 + dy)}"></div>'
+    if not known:
+        return cover
+    values = {
+        "no": AS_PER_IGM, "size": "", "type": "", "cargo": "", "deposit": str(DEPOSIT_PER_CONTAINER),
+        "liability": str(DAMAGE_LIABILITY), "returned": "", "damage_cost": "0", "damage_status": "",
+    }
+    cells = [
+        f'<span class="cell" data-col="{key}" style="{s.at(x + dx, 315 + dy, x + dx + 160, 330 + dy)}">{esc(values[key])}</span>'
+        for key, x in _CONTAINER_COLUMNS
+    ]
+    totals = (
+        (40, 337, 300, "Showing 1 to 1 of 1 entries", ""), (36, 358, 100, "Total", ";font-weight:700"),
+        (652, 356, 800, f"{DEPOSIT_PER_CONTAINER:.1f}", ""), (1221, 356, 1300, "0.0", ""),
+    )
+    cells += [
+        f'<span class="cell" style="{s.at(x + dx, y + dy, x1 + dx, y + 15 + dy)};color:#333{extra}">{esc(text)}</span>'
+        for x, y, x1, text, extra in totals
+    ]
+    return cover + "".join(cells)
+
+
+@router.get("/counter-process")
+def counter_process(request: Request, location: str = "") -> Response:
+    """Step 1: Counter Process, opened for the location chosen on the services page."""
+    if current_user(request) is None:
+        return to_login(request)
+    if location and location not in LOCATIONS:
+        return RedirectResponse(HOME, status_code=303)
+    s = COUNTER
+    # The picture shows the menu open; the live one opens with a click, as ODeX's does.
+    live = f"""<button id="menu-security-deposit" class="live hot" data-menu="security-deposit-menu" title="Security Deposit" style="{s.at(358, 0, 470, 38)}"></button>
+<div id="security-deposit-menu" class="dropdown live" hidden style="{s.at(289, 33, 476, 81)}">
+<a id="menu-deposit-refund" href="{DEPOSITS}">Security Deposit &amp; Refund</a></div>
+<a id="home" class="live hot" title="Main menu" href="{HOME}" style="{s.at(1314, 6, 1338, 29)}"></a>"""
+    response = _page("Counter Process", _shot(request, s, live), script=_MENU_SCRIPT, style=_DEPOSIT_STYLE)
+    if location:
+        response.set_cookie(LOCATION_COOKIE, location, samesite="lax", path="/odex")
+    return response
+
+
+@router.get("/counter-process/deposit-refund")
+def deposit_requests(request: Request, bl_no: str = "", status: str = "", submitted: str = "") -> Response:
+    """Step 2: Search Deposit/Refund Request. View opens the ticked request."""
+    if current_user(request) is None:
+        return to_login(request)
+    s = DEPOSIT_LIST
+    bl_no = forms.code(bl_no)
+    status = status if status in DEPOSIT_STATUSES else ""
+    with store_of(request).read() as data:
+        everything = [dict(d) for d in reversed(data["deposits"])]
+    items = [d for d in everything if (not bl_no or d["bl_no"] == bl_no) and (not status or d["status"] == status)]
+    shown = items[:DEPOSIT_LIST_ROWS]
+    rows = []
+    for item in shown:
+        state = esc(item["status"])
+        if item.get("slip_file"):
+            state += f' · <a class="download-slip" href="/odex/files/{esc(item["slip_file"])}">Slip</a>'
+        cells = (
+            f'<input type="checkbox" class="row-select" title="Select" value="{esc(item["id"])}">',
+            esc(datetime.fromisoformat(item["created_at"]).strftime("%d-%m-%Y %H:%M")), "", esc(item["ref"]),
+            esc(item["location"]), esc(item["line"]), esc(item["bl_no"]), esc(item["refund_to"]), state,
+        )
+        rows.append(
+            f'<div class="dep-row" data-id="{esc(item["id"])}" data-bl="{esc(item["bl_no"])}" data-ref="{esc(item["ref"])}" '
+            f'data-status="{esc(item["status"])}">' + "".join(f"<span>{cell}</span>" for cell in cells) + "</div>"
+        )
+    height = 24 * max(1, len(shown)) + 40
+    # With nothing to list, the picture's own empty table shows through.
+    look = "live deposit-list" if rows else "live deposit-list as-pictured"
+    counted = f'<div class="dep-count">Showing 1 to {len(shown)} of {len(items)} entries</div>' if rows else ""
+    live = f"""<form id="deposit-search" action="{DEPOSITS}" method="get">
+<input id="search-bl" name="bl_no" class="live field" autocomplete="off" placeholder="BL NO." value="{esc(bl_no)}" style="{s.at(1354, 62, 1523, 86)}">
+<select id="search-status" name="status" class="live field" style="{s.at(1554, 62, 1724, 86)}">{_options(DEPOSIT_STATUSES, status, "All")}</select>
+<button id="search-go" class="live hot" type="submit" title="Search" style="{s.at(1749, 61, 1785, 87)}"></button>
+</form>
+<button id="view" class="live hot" type="button" title="View" data-view="{DEPOSITS}/" style="{s.at(15, 94, 76, 120)}"></button>
+<div id="list-message" class="live cover" hidden style="{s.at(252, 96, 700, 118)};color:#c0392b">Select a request to view it.</div>
+<a id="new-deposit" class="live hot" title="NEW - DEPOSIT" href="{DEPOSITS}/new" style="{s.at(1796, 94, 1905, 119)}"></a>
+<div id="deposit-list" class="{look}" data-search="{esc(bl_no)}" style="{s.at(12, 178, 1906, 178 + height)}"><div id="deposit-rows">{"".join(rows)}</div>{counted}</div>"""
+    toast = ""
+    if submitted:
+        done = next((d for d in everything if d["id"] == submitted), None)
+        if done:
+            toast = _toast(
+                True, f"Deposit request {done['ref']} for BL {done['bl_no']} submitted: {done['status']}.", reference=done["ref"]
+            )
+    return _page(
+        "Search Deposit/Refund Request", toast + _shot(request, s, live), script=_DEPOSIT_LIST_SCRIPT, style=_DEPOSIT_STYLE
+    )
+
+
+@router.get("/counter-process/deposit-refund/bl-details")
+def deposit_bl_details(request: Request, bl_no: str = "", mbl_no: str = "") -> Response:
+    """What fills the FPOD, Office Location, Consignee Name and Container Details."""
+    if current_user(request) is None:
+        return JSONResponse({}, status_code=401)
+    details = _bl_details(_location(request), forms.code(bl_no), forms.code(mbl_no))
+    return JSONResponse({**details, "containers": _containers(DEPOSIT_FORM, details["known"])})
+
+
+def _deposit_page(request: Request, values: dict[str, str], problems: list[str] | None = None) -> Response:
+    s = DEPOSIT_FORM
+    toast = _toast(False, "The deposit request was not submitted.", problems=problems) if problems else ""
+    pick = values.get
+    details = _bl_details(_location(request), pick("bl_no", ""), pick("mbl_no", ""))
+    pan = REFUND_PARTIES.get(pick("refund_to_name", ""), "") if pick("refund_to", "") == "ThirdParty" else ""
+
+    def box(name: str, at: tuple[int, int, int, int], css: str = "field") -> str:
+        return (
+            f'<input id="{name.replace("_", "-")}" name="{name}" class="live {css}" autocomplete="off" '
+            f'value="{esc(pick(name, ""))}" style="{s.at(*at)}">'
+        )
+
+    def filled_in(element_id: str, value: str, at: tuple[int, int, int, int]) -> str:
+        """A field ODeX fills in itself."""
+        return f'<input id="{element_id}" class="live field" readonly tabindex="-1" value="{esc(value)}" style="{s.at(*at)}">'
+
+    looked_up = ' data-details="filled"' if details["known"] else ""
+    live = f"""<form id="deposit-form" action="{DEPOSITS}/new" method="post" enctype="multipart/form-data" data-lookup="{DEPOSITS}/bl-details" data-parties="{esc(json.dumps(REFUND_PARTIES))}"{looked_up}>
+<select id="line" name="line" class="live field" style="{s.at(168, 108, 463, 133)}">{_options(LINER_NAMES, pick("line", ""))}</select>
+{box("bl_no", (642, 108, 937, 133), "field bl")}
+{box("mbl_no", (1117, 108, 1412, 133))}
+{filled_in("fpod", details["fpod"], (168, 140, 463, 165))}
+{filled_in("office-location", details["office_location"], (1117, 140, 1412, 165))}
+<select id="mode-of-payment" name="mode_of_payment" class="live field" style="{s.at(1591, 140, 1868, 165)}">{_options(DEPOSIT_PAYMENT_MODES, pick("mode_of_payment", ""))}</select>
+{filled_in("consignee-name", details["consignee"], (168, 172, 463, 197))}
+<select id="refund-to" name="refund_to" class="live field" style="{s.at(1117, 172, 1249, 197)}">{_options(REFUND_TO, pick("refund_to", ""))}</select>
+<select id="refund-to-name" name="refund_to_name" class="live field" style="{s.at(1265, 172, 1412, 197)}">{_options(tuple(REFUND_PARTIES), pick("refund_to_name", ""))}</select>
+{filled_in("refund-to-pan", pan, (1591, 172, 1886, 197))}
+<textarea id="customer-remarks" name="customer_remarks" class="live field box" style="{s.at(642, 204, 937, 240)}">{esc(pick("customer_remarks", ""))}</textarea>
+<div id="container-rows" style="display:contents">{_containers(s, details["known"])}</div>
+<select id="attachment-name" name="attachment_name" class="live field" style="{s.at(37, 470, 469, 493)}">{_options(DEPOSIT_DOCUMENTS, pick("attachment_name", NOC_DOCUMENT))}</select>
+<div class="live cover" style="{s.at(500, 468, 940, 494)};justify-content:center"><input id="attachment-file" name="attachment_file" type="file" accept="application/pdf,.pdf"></div>
+{box("attachment_remarks", (971, 474, 1309, 497))}
+{box("bank", (168, 641, 463, 666))}
+{box("amount", (642, 641, 937, 666))}
+{box("bank_payment_reference", (1117, 641, 1412, 666))}
+<input id="payment-date" name="payment_date" class="live field" autocomplete="off" placeholder="dd-mm-yyyy" value="{esc(pick("payment_date", ""))}" style="{s.at(1591, 641, 1853, 666)}">
+{box("cma_ireceipt_no", (168, 673, 463, 698))}
+{box("beneficiary_name", (168, 759, 463, 784))}
+{box("refund_bank_name", (642, 759, 937, 784))}
+{box("branch_name", (1117, 759, 1412, 784))}
+{box("ac_type", (1591, 759, 1886, 784))}
+{box("ac_no", (168, 806, 463, 831))}
+{box("ifsc_code", (642, 806, 937, 831))}
+</form>"""
+    # The guide's screenshot ends above the form's buttons, so they go under it.
+    actions = (
+        f'<div class="deposit-actions" style="max-width:{s.width}px">'
+        '<button id="submit-deposit" class="odex-btn" type="submit" form="deposit-form">SUBMIT</button>'
+        f'<a id="back" class="odex-btn" href="{DEPOSITS}">BACK</a></div>'
+    )
+    return _page(
+        "Security Deposit And Refund Request", toast + _shot(request, s, live) + actions, script=_DEPOSIT_FORM_SCRIPT,
+        style=_DEPOSIT_STYLE, status_code=400 if problems else 200,
+    )
+
+
+@router.get("/counter-process/deposit-refund/new")
+def new_deposit(request: Request) -> Response:
+    if current_user(request) is None:
+        return to_login(request)
+    return _deposit_page(request, {})
+
+
+@router.post("/counter-process/deposit-refund/new")
+async def create_deposit(request: Request) -> Response:
+    """SUBMIT: the request waits for CMA CGM to approve the deposit (the control panel)."""
+    user = current_user(request)
+    if user is None:
+        return to_login(request)
+    form = await request.form()
+    keys = ("line", "bl_no", "mbl_no", "mode_of_payment", "refund_to", "refund_to_name", "customer_remarks",
+            "attachment_name", "attachment_remarks", "bank", "amount", "bank_payment_reference", "payment_date",
+            "cma_ireceipt_no", "beneficiary_name", "refund_bank_name", "branch_name", "ac_type", "ac_no", "ifsc_code")
+    values = {key: forms.text(form, key) for key in keys}
+    for key in ("bl_no", "mbl_no", "bank_payment_reference", "cma_ireceipt_no", "ac_no", "ifsc_code"):
+        values[key] = forms.code(values[key])
+    third = values["refund_to"] == "ThirdParty"
+    amount, paid_on = forms.amount(values["amount"]), forms.past_dmy_date(values["payment_date"])
+    problems = []
+    if values["line"] not in LINER_NAMES:
+        problems.append("Select the Line.")
+    if not forms.BL.match(values["bl_no"]):
+        problems.append("Enter the BL No.")
+    if not forms.BL.match(values["mbl_no"]):
+        problems.append("Enter the MBL No.")
+    if values["mode_of_payment"] not in DEPOSIT_PAYMENT_MODES:
+        problems.append("Select the Mode Of Payment.")
+    if values["refund_to"] not in REFUND_TO:
+        problems.append("Select whom the deposit is refunded to.")
+    elif third and values["refund_to_name"] not in REFUND_PARTIES:
+        problems.append("Select the third party the deposit is refunded to.")
+    noc = await forms.attachment(form, "attachment_file", "NOC", problems, required=third)
+    if noc and values["attachment_name"] not in DEPOSIT_DOCUMENTS:
+        problems.append("Select the Document Name of the attachment.")
+    elif noc and third and values["attachment_name"] != NOC_DOCUMENT:
+        problems.append(f"Attach the {NOC_DOCUMENT}.")
+    if not values["bank"]:
+        problems.append("Enter the Bank.")
+    if amount is None:
+        problems.append("Enter the Amount.")
+    if not forms.UTR.match(values["bank_payment_reference"]):
+        problems.append("Enter the Bank Payment Reference.")
+    if paid_on is None:
+        problems.append("Enter the Payment date as dd-mm-yyyy, not in the future.")
+    if not forms.INVOICE_NO.match(values["cma_ireceipt_no"]):
+        problems.append("Enter the CMA iReceipt No.")
+    for key, label in (("beneficiary_name", "Beneficiary Name"), ("refund_bank_name", "Bank Name"),
+                       ("branch_name", "Branch Name"), ("ac_type", "A/C Type")):
+        if not values[key]:
+            problems.append(f"Enter the {label} of the refund.")
+    if not re.fullmatch(r"\d{6,20}", values["ac_no"]):
+        problems.append("Enter the A/C No. of the refund.")
+    if not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", values["ifsc_code"]):
+        problems.append("Enter the IFSC Code of the refund.")
+    location = _location(request)
+    details = _bl_details(location, values["bl_no"], values["mbl_no"])
+    store = store_of(request)
+    try:
+        if problems:
+            raise forms.Rejected(*problems)
+        with store.change() as data:
+            for earlier in data["deposits"]:
+                if earlier["bl_no"] == values["bl_no"] and earlier["status"] != "Rejected":
+                    raise forms.Rejected(
+                        f"A deposit request for BL {values['bl_no']} is already there: {earlier['ref']} ({earlier['status']})."
+                    )
+            item_id = secrets.token_hex(6)
+            data["deposits"].append({
+                "id": item_id, "ref": next_ref(data, "SD", 5), "line": values["line"], "bl_no": values["bl_no"],
+                "mbl_no": values["mbl_no"], "location": location, "fpod": details["fpod"], "consignee": details["consignee"],
+                "mode_of_payment": values["mode_of_payment"], "refund_to": values["refund_to"],
+                "refund_to_name": values["refund_to_name"] if third else "",
+                "refund_pan": REFUND_PARTIES.get(values["refund_to_name"], "") if third else "",
+                "customer_remarks": values["customer_remarks"],
+                "attachments": [{
+                    "doc_type": values["attachment_name"], "name": noc[0], "file": store.add_file(data, noc[1], noc[0]),
+                    "remarks": values["attachment_remarks"],
+                }] if noc else [],
+                "bank_name": values["bank"], "amount": amount, "utr": values["bank_payment_reference"],
+                "payment_date": paid_on, "ireceipt_no": values["cma_ireceipt_no"],
+                "refund_account": {
+                    "beneficiary": values["beneficiary_name"], "bank": values["refund_bank_name"],
+                    "branch": values["branch_name"], "type": values["ac_type"], "number": values["ac_no"],
+                    "ifsc": values["ifsc_code"],
+                },
+                "status": "Deposit Requested", "created_at": now(), "by": user,
+            })
+    except forms.Rejected as rejected:
+        return _deposit_page(request, values, rejected.problems)
+    return RedirectResponse(f"{DEPOSITS}?submitted={item_id}", status_code=303)
+
+
+@router.get("/counter-process/deposit-refund/{item_id}")
+def view_deposit(item_id: str, request: Request) -> Response:
+    """Step 4: the request as ODeX keeps it, opened with View from the search."""
+    if current_user(request) is None:
+        return to_login(request)
+    with store_of(request).read() as data:
+        item = next((dict(d) for d in data["deposits"] if d["id"] == item_id), None)
+    if item is None:
+        return Response("No such request.", status_code=404)
+    s = DEPOSIT_VIEW
+    account = item["refund_account"]
+    attached = item["attachments"][0] if item["attachments"] else {"doc_type": "", "name": "", "file": "", "remarks": ""}
+
+    def value(at: tuple[int, int, int, int], text: str, element_id: str = "", css: str = "") -> str:
+        named = f' id="{element_id}"' if element_id else ""
+        return f'<div{named} class="live cover line {css}" style="{s.at(*at)}">{esc(text)}</div>'
+
+    link = (
+        f'<a id="attachment-link" href="/odex/files/{esc(attached["file"])}">{esc(attached["name"])}</a>'
+        if attached["file"] else ""
+    )
+    # The top of the View screenshot sits 2 px lower than the form's, and the rest 72 px
+    # lower, under "For office use only", which ODeX fills in after a refund.
+    live = [
+        value((162, 110, 457, 135), item["line"]),
+        value((636, 110, 931, 135), item["bl_no"], "view-bl-no", "bl"),
+        value((1111, 110, 1406, 135), item["mbl_no"]),
+        value((162, 142, 457, 167), item["fpod"]),
+        value((636, 142, 931, 167), item["ref"], "request-no"),
+        value((1111, 142, 1406, 167), item["location"]),
+        value((1585, 142, 1860, 167), item["mode_of_payment"]),
+        value((162, 174, 457, 199), item["consignee"]),
+        value((1111, 174, 1243, 199), item["refund_to"]),
+        value((1259, 174, 1406, 199), item["refund_to_name"]),
+        value((1585, 174, 1869, 199), item["refund_pan"]),
+        value((162, 208, 457, 233), item["status"], "request-status"),
+        f'<div class="live cover" style="{s.at(638, 208, 929, 241)};white-space:normal">{esc(item["customer_remarks"])}</div>',
+        _containers(s, True, dx=-6, dy=72),
+        value((31, 542, 463, 565), attached["doc_type"]),
+        f'<div class="live cover" style="{s.at(494, 540, 940, 566)}">{link}</div>',
+        value((965, 546, 1303, 569), attached["remarks"]),
+        value((162, 713, 457, 738), item["bank_name"]),
+        value((636, 713, 931, 738), f"{item['amount']:.2f}"),
+        value((1111, 713, 1406, 738), item["utr"]),
+        value((1585, 713, 1848, 738), datetime.fromisoformat(item["payment_date"]).strftime("%d-%m-%Y")),
+        value((162, 745, 457, 770), item["ireceipt_no"]),
+        value((162, 831, 457, 856), account["beneficiary"]),
+        value((636, 831, 931, 856), account["bank"]),
+        value((1111, 831, 1406, 856), account["branch"]),
+        value((1585, 831, 1869, 856), account["type"]),
+        value((162, 878, 457, 903), account["number"]),
+        value((636, 878, 931, 903), account["ifsc"]),
+        f'<a id="back" class="live hot" title="BACK" href="{DEPOSITS}" style="{s.at(789, 928, 839, 953)}"></a>',
+    ]
+    shot = _shot(request, s, "\n".join(live), request_ref=item["ref"], request_status=item["status"])
+    return _page("Security Deposit And Refund Request", shot, style=_DEPOSIT_STYLE)

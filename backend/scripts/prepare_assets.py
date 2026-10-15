@@ -54,6 +54,13 @@ ODEX_GUIDES = {
         "word/media/image3.png": "do-requests.png",  # step 3: Documents → DO Request, with its advertisement
         "word/media/image5.png": "do-request.png",  # steps 4-5: the DO request, its folder added through Add Row
     },
+    # The security deposit, once CMA CGM's Security Receipt is in.
+    "Docs/Security deposit number 1.docx": {
+        "word/media/image1.png": "counter-process.png",  # step 1: Security Deposit → Security Deposit & Refund
+        "word/media/image2.png": "deposit-requests.png",  # step 2: Search Deposit/Refund Request, NEW - DEPOSIT
+        "word/media/image3.png": "new-deposit.png",  # step 3: the requestor, payment and refund details
+        "word/media/image4.png": "view-deposit.png",  # step 4: the request, opened with View from the search
+    },
 }
 
 # Paper in a phone photo of a stamp is never pure white. Anything this close to

@@ -55,12 +55,20 @@ def doc_key_for(filename: str) -> str | None:
 
 _CONSIGNEE = re.compile(r"Consignee\s*\(Complete name and address\)[ \t]*\n?[ \t]*([^\n]+)")
 _VESSEL = re.compile(r"Ocean vessel\.?\s*([A-Z0-9][A-Z0-9 .\-]*?)\s+V\.?\s*([A-Z0-9]{4,12})\b")
+# CMA CGM's receipt: a line "RECEIPT", then its number. "Electronic Receipt" further down
+# isn't in capitals.
+_RECEIPT_NO = re.compile(r"^[ \t]*RECEIPT[ \t]*\n[ \t]*((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{3,24})[ \t]*$", re.M)
 
 
 def extract_fields(key: str, text: str) -> dict[str, str]:
-    """Shipment fields printed on a bill: the consignee, the vessel and the voyage.
-    shortcut: read from CMA CGM's draft layout ("Ocean vessel. NAME V.VOYAGE"); change when it changes."""
+    """Shipment fields printed on a document: the consignee, the vessel and the voyage on a
+    bill, and the receipt number on CMA CGM's Security Receipt.
+    shortcut: read from CMA CGM's layouts ("Ocean vessel. NAME V.VOYAGE"); change when they change."""
     found: dict[str, str] = {}
+    if key == "security_receipt":
+        if receipt := _RECEIPT_NO.search(text):
+            found["security_receipt_no"] = receipt.group(1)
+        return found
     if consignee := _CONSIGNEE.search(text):
         found["consignee_mbl" if key == "mbl" else "consignee_hbl"] = consignee.group(1).strip().rstrip(".").strip()
     if vessel := _VESSEL.search(text):
@@ -171,7 +179,8 @@ def route_files_job(rt: Runtime, shipment_id: str, files: list[dict[str, str]]) 
 
 
 def attach_file_job(rt: Runtime, shipment_id: str, slot_id: str, path: str, name: str) -> dict[str, Any]:
-    """Attaches an emailed file to a slot, as api.upload_file does for an upload."""
+    """Attaches an emailed file to a slot, as api.upload_file does for an upload, and fills
+    the empty fields printed on it (the Security Receipt's number)."""
     data = Path(path).read_bytes()
     with rt.sessionmaker() as session:
         shipment = service.load_shipment(session, shipment_id)
@@ -181,8 +190,21 @@ def attach_file_job(rt: Runtime, shipment_id: str, slot_id: str, path: str, name
         if slot.doc.source == "fixed":
             raise service.NotReady(f"{slot.doc.title} is the same for every shipment and can't be replaced.")
         result = _attach(rt, session, shipment, slot, name, data)
+        filled = []
+        if result["attached"]:
+            try:
+                text = pdfs.extract_text(pdfs.to_pdf(data, name))
+            except pdfs.UnreadableFile:
+                text = ""
+            values = dict(shipment.data)
+            for field, value in extract_fields(slot.doc.key, text).items():
+                if _fillable(rt, values, field) and values.get(field) != value:
+                    values[field] = value
+                    filled.append(field)
+            if filled:
+                shipment.data = values
         session.commit()
-        return result
+        return {**result, "filled": filled}
 
 
 def record_job(rt: Runtime, shipment_id: str, stage: str, detail: str, fields: dict[str, str] | None = None) -> None:

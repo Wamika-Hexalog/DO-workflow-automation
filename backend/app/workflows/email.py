@@ -111,7 +111,7 @@ def create_email_inbound_function(rt: Runtime) -> inngest.Function:
                     f"attach-file-{i}", job(email_ingest.attach_file_job, rt, shipment_id, code.arg, f["path"], f["name"])
                 )
                 attached = [{**one, "slot_id": code.arg}] if one["attached"] else []
-                filled: list[str] = []
+                filled: list[str] = one.get("filled", [])
             else:  # MBL and HBL usually arrive together: each remaining file goes to its slot by file name
                 routed = await ctx.step.run(
                     f"route-files-{i}", job(email_ingest.route_files_job, rt, shipment_id, files[next_file:])
@@ -125,7 +125,7 @@ def create_email_inbound_function(rt: Runtime) -> inngest.Function:
                 )
                 for a in attached
             ]
-            if filled:  # the folder check reads the new HBL and container numbers
+            if filled:  # the folder check and the payments read the new numbers
                 events.append(inngest.Event(name=EventNames.SHIPMENT_UPDATED, data={"shipment_id": shipment_id}))
             if events:
                 await ctx.step.send_event(f"emit-do-events-{i}", events)

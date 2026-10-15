@@ -41,7 +41,7 @@ EDO_VALID_DAYS = 14
 WAITING = {
     "invoice_requests": "Pending",
     "rtgs_requests": "Received",
-    "deposits": "Pending Approval",
+    "deposits": "Deposit Requested",
     "do_requests": "Submitted",
 }
 

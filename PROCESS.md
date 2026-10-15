@@ -161,21 +161,24 @@ For each filing, the agent ticks the privacy policy, submits the page and keeps 
 | Invoice row of the mail | The receipt goes to |
 |---|---|
 | An invoice number (the delivery) | DO Receipt (folder document 7) |
-| "-" in place of the invoice (the security deposit) | Security Receipt (folder document 5) |
+| "-" in place of the invoice (the security deposit) | Security Receipt (folder document 5). Its number fills the CMA iReceipt no. (`security_receipt_no`), which step 8 needs |
 
 **Workflows:** `do-rtgs-payment` and `do-rtgs-deposit`, then `customs/do.rtgs.submitted`. Each confirms money, so neither retries. If one fails, check the RTGS page before you approve it again.
 
 ## 8. Raise the security deposit on ODeX
 
-**Starts with:** ops approve "Raise the security deposit on ODeX". The task comes up when the job has what the deposit needs. Usually the last thing to arrive is the Security Receipt from step 7c.
+**Starts with:** ops approve "Raise the security deposit on ODeX". The task comes up when the job has what the deposit needs. Usually the last thing to arrive is the Security Receipt's number from step 7c.
 
-The agent opens Counter Process → Deposit and Refund → New Deposit, once for each HBL, and enters:
+The agent follows the team's guide "Security deposit number 1", once for each HBL: Counter Process for the MBL's place of delivery, then Security Deposit → Security Deposit & Refund → NEW - DEPOSIT. It enters:
 
-- The liner, the HBL number, `deposit_amount`, `deposit_utr`, `payment_date` and the bank (`payer_bank`).
-- Who gets the refund (`deposit_refund_to`). For a third party (the default), also the CHA's name and the NOC for the refund, which the app writes.
-- The Security Receipt from the DO folder.
+- Requestor details: the Line, the HBL as the BL No., and the MBL No. ODeX fills in the FPOD, the office, the consignee and the containers. Mode Of Payment is Non-ODeX-RTGS. The refund goes to a third party: the CHA, as ODeX lists it (`refund_party`). ODeX fills in its PAN.
+- Attachment: the NOC on the letterhead of the MBL's consignee, which the app writes.
+- Payment details: the bank (`payer_bank`), `deposit_amount`, the deposit's UTR as the Bank Payment Reference, `payment_date`, and the CMA iReceipt No (`security_receipt_no`).
+- Refund details: the CHA's bank account (fixed details: `refund_party`, `refund_bank`, `refund_branch`, `refund_account_type`, `refund_account_no`, `refund_ifsc`).
 
-**Kept:** each deposit's ODeX number, in the task's note.
+Then it submits, searches the HBL on Search Deposit/Refund Request, and opens the request with View, as the guide's step 4 does. A job whose deposit is refunded to the consignee doesn't start: the fixed details hold only the CHA's account.
+
+**Kept:** each deposit's Request No. (SD…) and its status, in the task's note.
 
 **Workflow:** `do-deposit-request`, then `customs/do.deposit.submitted`. This step moves money, so it does not retry.
 
@@ -242,7 +245,7 @@ The agent opens Documents → DO Request on ODeX, finds each HBL and downloads i
 ## Run it with real mail
 
 1. Run `make demo-local`. It starts the app on :8000, the Inngest dev server and the local portals.
-2. In the app's fixed details, fill the two that have no default: Finance's email (`finance_email`) and the bank account that pays CMA CGM (`payer_account_no`).
+2. In the app's fixed details, fill the ones that have no default: Finance's email (`finance_email`), the bank account that pays CMA CGM (`payer_account_no`), and the account the deposit is refunded into (`refund_bank`, `refund_branch`, `refund_account_no`, `refund_ifsc`).
 3. Run `ngrok http 8000 --url=<the host in WEBHOOK_BASE_URL>`. Use no other host: the app's guard protects only that one.
 4. When the tunnel is up, run `curl -X POST http://127.0.0.1:8000/api/webhooks/graph/subscribe`. `GET /api/webhooks/status` shows the subscription.
 5. Send the pre-alert (step 1). Steps 2 to 5 run by themselves.

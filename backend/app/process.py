@@ -128,7 +128,7 @@ def _approval_note(step_key: str, params: list[dict[str, str]], hbls: list[str])
         )
     return (
         f"Approve to raise the security deposit on ODeX for HBL {', '.join(hbls)}: Rs. {p['amount']} each, "
-        f"UTR {_last4(p['utr'])}, with CMA CGM's security receipt."
+        f"UTR {_last4(p['utr'])}, CMA iReceipt no. {p['ireceipt_no']}, refunded to {p['refund_party']}."
     )
 
 

@@ -27,6 +27,8 @@ PAID = dict(
     do_invoice_no="inv-demo-0431", do_invoice_amount="54720.68", payment_utr="demoutr0431inv",
     deposit_utr="DEMOUTR0431DEP", payment_date="2026-10-01",
 )
+# The CHA's account the deposit is refunded into: fixed details with no default.
+REFUND_ACCOUNT = dict(refund_bank="DEMO BANK", refund_branch="DEMO BRANCH", refund_account_no="000000000001", refund_ifsc="demo0000001")
 
 
 def params(api, shipment: dict, step: str) -> dict[str, dict[str, str]]:
@@ -57,8 +59,13 @@ def test_each_step_says_what_it_still_needs(api):
     with pytest.raises(MissingData, match="needs UTR for the security deposit, Bank account no. that pays CMA CGM "
                        "\\(fixed details\\) and Date of transfer first"):
         params(api, s, RTGS_DEPOSIT)
-    with pytest.raises(MissingData, match="UTR for the security deposit, Date of transfer and the Security Receipt in the DO folder"):
+    with pytest.raises(MissingData) as missing:
         params(api, s, DEPOSIT)
+    assert str(missing.value) == (
+        "Raising the security deposit on ODeX needs UTR for the security deposit, Date of transfer, CMA iReceipt no. "
+        "(Security Receipt), Bank of the refund account (fixed details), Branch of the refund account (fixed details), "
+        "Refund account no. (fixed details) and IFSC code of the refund account (fixed details) first."
+    )
     with pytest.raises(MissingData, match="Raising the DO request on ODeX needs a built DO folder first"):
         params(api, s, DO_REQUEST)
     # Missing data stops a workflow at once, with the message on the task.
@@ -120,23 +127,38 @@ def test_the_invoice_odex_shows_goes_on_the_job(api):
 
 
 def test_a_deposit_refunded_to_the_cha_carries_hexalogs_noc(api):
-    s = set_values(api, new_shipment(api), **PAID)
-    s = attach(api, s, "security_receipt", make_pdf(f"SECURITY RECEIPT 40,000 BL {MBL}"))
+    # Protects: ODeX's deposit gets the job's payment, CMA CGM's receipt number and the CHA's refund account,
+    # with Hexalog's NOC. Fails if a value is taken from the wrong field, or a refund to the consignee goes ahead.
+    set_fixed(api, **REFUND_ACCOUNT)
+    s = set_values(api, new_shipment(api), **PAID, security_receipt_no="rcpt-demo-00002")
     deposit = params(api, s, DEPOSIT)[HBL]
-    assert deposit["hbl_no"] == HBL and deposit["amount"] == "40000" and deposit["utr"] == "DEMOUTR0431DEP"
-    assert deposit["refund_to"] == "Third Party"
-    assert deposit["third_party_name"] == "JAY SHRI RAM DARBAR LOGISTICS (P) LTD"
-    # Named for what it is: the portal shows the file's name to CMA CGM.
-    assert Path(deposit["receipt_file"]).name == f"Security Receipt {MBL}.pdf"
-    assert Path(deposit["receipt_file"]).read_bytes().startswith(b"%PDF-")
-    noc = " ".join(PdfReader(deposit["noc_file"]).pages[0].extract_text().split())
+    noc = " ".join(PdfReader(deposit.pop("noc_file")).pages[0].extract_text().split())
     assert "NO OBJECTION" in noc and f"B/L Number: {MBL}" in noc and "Rs.40,000/-" in noc
     assert "in favour of M/s JAY SHRI RAM DARBAR LOGISTICS (P) LTD" in noc and "ABJCS8010P" in noc
+    assert deposit == {
+        "odex_location": "NCR",
+        "liner": "CMA CGM",
+        "hbl_no": HBL,
+        "mbl_no": MBL,
+        "refund_party": "JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED",
+        "bank": "ICICI BANK",
+        "amount": "40000.00",
+        "utr": "DEMOUTR0431DEP",
+        "payment_date": "01-10-2026",
+        "ireceipt_no": "RCPT-DEMO-00002",
+        "beneficiary_name": "JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED",
+        "refund_bank": "DEMO BANK",
+        "refund_branch": "DEMO BRANCH",
+        "refund_account_type": "Current",
+        "refund_account_no": "000000000001",
+        "refund_ifsc": "DEMO0000001",
+        "odex_url": "http://127.0.0.1:8100/odex",
+    }
 
-    # A refund to the consignee who paid needs no NOC.
+    # ODeX asks for the account the refund goes to, and the fixed details hold only the CHA's.
     s = set_values(api, s, deposit_refund_to="Consignee")
-    deposit = params(api, s, DEPOSIT)[HBL]
-    assert deposit["third_party_name"] == "" and deposit["noc_file"] == ""
+    with pytest.raises(service.NotReady, match="Raise a deposit refunded to the consignee on ODeX by hand"):
+        params(api, s, DEPOSIT)
 
 
 def test_the_do_request_needs_an_up_to_date_folder(api, engine):

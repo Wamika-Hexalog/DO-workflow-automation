@@ -149,9 +149,14 @@ def emailed(portals: SimpleNamespace, name_starts: str) -> tuple[str, bytes]:
     raise AssertionError(f"CMA CGM emailed no {name_starts}")
 
 
+# The CHA's account the deposit is refunded into: fixed details with no default.
+REFUND_ACCOUNT = {"refund_bank": "DEMO BANK", "refund_branch": "DEMO BRANCH", "refund_account_no": "000000000001",
+                  "refund_ifsc": "DEMO0000001"}
+
+
 def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     api, engine = do_app
-    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012"}
+    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012", **REFUND_ACCOUNT}
     assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
     s = attach(api, new_shipment(api), "mbl", make_pdf(f"MASTER BILL {MBL}"))
 
@@ -192,10 +197,14 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     s = attach(api, s, "do_receipt", receipt, name)
     name, receipt = emailed(portals, "Security Receipt")
     s = attach(api, s, "security_receipt", receipt, name)
+    # The mail ingest reads the receipt's number; an upload leaves it to ops to type.
+    receipt_no = name.removeprefix("Security Receipt ").removesuffix(".pdf")
+    s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": {"security_receipt_no": receipt_no}}).json()
 
-    # The deposit, with Hexalog's NOC and the security receipt, then its slip once approved.
-    assert run(api, s, DEPOSIT)[0]["odex_deposit_ref"].startswith("SD")
-    assert run(api, s, DEPOSIT_STATUS)[0]["deposit_status"] == "Pending Approval"
+    # The deposit (the team's third guide), with Hexalog's NOC, then its slip once approved.
+    deposit_run = run(api, s, DEPOSIT)[0]
+    assert deposit_run["odex_deposit_ref"].startswith("SD") and deposit_run["odex_deposit_status"] == "Deposit Requested"
+    assert run(api, s, DEPOSIT_STATUS)[0]["deposit_status"] == "Deposit Requested"
     answer(portals, "deposits")
     status = run(api, s, DEPOSIT_STATUS)[0]
     assert status["deposit_status"] == "Deposit Approved"
@@ -203,8 +212,11 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     s = attach(api, s, f"security_odex_receipt:{HBL}", slip, "Security deposit slip.pdf")
     with portals.store.read() as data:
         deposit = dict(data["deposits"][0])
-    assert (deposit["bl_no"], deposit["utr"], deposit["refund_to"]) == (HBL, "DEMOUTR0001DEP", "Third Party")
-    assert deposit["noc_file"] and deposit["receipt_file"]
+    assert (deposit["bl_no"], deposit["mbl_no"], deposit["utr"], deposit["ireceipt_no"]) == (HBL, MBL, "DEMOUTR0001DEP", receipt_no)
+    assert (deposit["mode_of_payment"], deposit["refund_to"], deposit["refund_account"]["number"]) == (
+        "Non-ODeX-RTGS", "ThirdParty", "000000000001",
+    )
+    assert [a["doc_type"] for a in deposit["attachments"]] == ["NOC (on the letter head of MBL consignee)"]
 
     # The DO folder takes the portals' documents like the real ones.
     s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
@@ -270,7 +282,10 @@ def mailed(portals: SimpleNamespace, engine: Engine) -> None:
 def test_the_process_runs_from_the_mails(process_app, portals):
     # Protects: each portal step starts from its mail or an ops approval, and the job moves through every stage. Fails if a mail, an event or a task stops the chain.
     api, engine = process_app
-    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012", "finance_email": "finance@example.com"}
+    fixed = {
+        "do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012", "finance_email": "finance@example.com",
+        **REFUND_ACCOUNT,
+    }
     assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
     s = new_shipment(api)
 

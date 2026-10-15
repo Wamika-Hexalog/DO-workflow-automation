@@ -1,27 +1,36 @@
-# Register the security deposit on ODeX: Counter Process → Deposit and Refund →
-# New Deposit. Runs once per house bill: ODeX takes a deposit per B/L.
+# Raise the security deposit on ODeX, as the team's guide "Security deposit number 1"
+# does it, once CMA CGM's Security Receipt is in: Counter Process for the MBL's place of
+# delivery, Security Deposit → Security Deposit & Refund, NEW - DEPOSIT, the requestor,
+# payment and refund details with the NOC, SUBMIT; then the Request No., by searching the
+# BL No. and View. Runs once per house bill: ODeX takes a deposit per B/L.
 #
-# Written for the local ODeX (make portals). The real page's selectors aren't known
-# yet; sops/local/README.md says what's needed to point it at the real one.
+# Written for the local ODeX (make portals), whose pages are the guide's screenshots with
+# live buttons and fields over them. The real ODeX's selectors aren't known: that needs
+# its pages' HTML (sops/local/README.md).
 #
 # Params, built by app/portal_params.py (step odex_deposit_new):
-#   odex_url          where ODeX is: DO_ODEX_URL, the local one by default
-#   liner             fixed details: Liner on ODeX
-#   hbl_no            the house B/L this deposit is for
-#   amount            job: Security deposit
-#   utr               job: UTR for the security deposit
-#   payment_date      job: Date of transfer, YYYY-MM-DD
-#   bank_name         fixed details: Bank that pays CMA CGM
-#   refund_to         job: Deposit refunded to ("Third Party" or "Consignee")
-#   third_party_name  job: CHA, for a refund to a third party; empty otherwise
-#   noc_file          the NOC for the refund (app/letters.py noc_refund), for a refund
-#                     to a third party; empty otherwise
-#   receipt_file      the Security Receipt in the DO folder
+#   odex_url             where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location        job: ODeX location (the MBL's place of delivery; ICD Tughlakabad is NCR)
+#   liner                fixed details: Liner on ODeX ("CMA CGM": the Line whose name starts with it)
+#   hbl_no               the house B/L this deposit is for: the BL No.
+#   mbl_no               job: Master B/L no.
+#   refund_party         fixed details: Deposit refunded to, as ODeX lists the CHA
+#   noc_file             the NOC for the refund on Hexalog's letterhead (app/letters.py noc_refund)
+#   bank                 fixed details: Bank that pays CMA CGM
+#   amount               job: Security deposit, as 40000.00
+#   utr                  job: UTR for the security deposit: the Bank Payment Reference
+#   payment_date         job: Date of transfer, DD-MM-YYYY
+#   ireceipt_no          job: CMA iReceipt no., read off CMA CGM's Security Receipt
+#   beneficiary_name     fixed details: Deposit refunded to, as the bank names it
+#   refund_bank, refund_branch, refund_account_type, refund_account_no, refund_ifsc
+#                        fixed details: the account the refund goes to
+# Mode Of Payment is Non-ODeX-RTGS and Refund To-Name is ThirdParty every time (guide,
+# step 3): Finance pays CMA CGM by RTGS, and the refund goes to the CHA.
 #
-# Reads back: odex_deposit_ref
+# Reads back: odex_deposit_ref, odex_deposit_status
 metadata:
-  name: "Local ODeX - New Deposit"
-  version: "0.1"
+  name: "Local ODeX - Security Deposit"
+  version: "0.2"
 
 credentials:
   username_env: "LOCAL_ODEX_USERNAME"
@@ -113,109 +122,234 @@ steps:
     condition: params.choose_company
     selector: "#confirmSignIn"
 
+
+  # Guide, step 1: Counter Process for the MBL's place of delivery, then Security
+  # Deposit → Security Deposit & Refund.
   - action: wait_for_selector
     description: Wait for the services page
     method: playwright
-    selector: "#counter-go"
+    selector: "#counter-location"
 
-  - action: click
-    description: Open Counter Process (Deposit and Refund)
-    method: playwright
-    selector: "#counter-go"
-
-  - action: wait_for_selector
-    description: Wait for the Deposit and Refund page
-    method: playwright
-    selector: "#new-deposit"
-
-  - action: click
-    description: New Deposit
-    method: playwright
-    selector: "#new-deposit"
-
-  - action: wait_for_selector
-    description: Wait for the deposit form
-    method: playwright
-    selector: "#deposit-form"
-
-  # Who the refund goes to first: choosing Third Party shows the fields for it.
   - action: execute_script
-    description: Choose the liner, the payment mode and who the refund goes to
+    description: Choose Counter Process's location
+    method: playwright
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#counter-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: click
+    description: Open Counter Process
+    method: playwright
+    selector: "#counter-go"
+
+  - action: wait_for_selector
+    description: Wait for Counter Process
+    method: playwright
+    selector: "#menu-security-deposit"
+
+  - action: click
+    description: Open the Security Deposit menu
+    method: playwright
+    selector: "#menu-security-deposit"
+
+  - action: click
+    description: Go to Security Deposit & Refund
+    method: playwright
+    selector: "#menu-deposit-refund"
+
+  # Guide, step 2: NEW - DEPOSIT.
+  - action: wait_for_selector
+    description: Wait for Search Deposit/Refund Request
+    method: playwright
+    selector: "#new-deposit"
+
+  - action: click
+    description: NEW - DEPOSIT
+    method: playwright
+    selector: "#new-deposit"
+
+  # Guide, step 3: the requestor details.
+  - action: wait_for_selector
+    description: Wait for the deposit request
+    method: playwright
+    selector: "#bl-no"
+
+  - action: execute_script
+    description: Choose the Line
     method: playwright
     script_args:
       liner: params.liner
-      payment_mode: "RTGS/NEFT"
-      refund_to: params.refund_to
     script: |
-      ({ liner, payment_mode, refund_to }) => {
+      ({ liner }) => {
+        // ODeX's line names are long ("CMA CGM AGENCIES INDIA PRIVATE LIMITED"): the
+        // one that starts with the name given is the one.
+        const select = document.querySelector('#line');
+        const want = String(liner).trim().toUpperCase();
+        const found = [...select.options].filter((o) => o.value && o.text.trim().toUpperCase().startsWith(want));
+        if (found.length !== 1) throw new Error(`ODeX has ${found.length} lines for "${liner}"`);
+        select.value = found[0].value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: fill
+    description: Enter the BL No. (the house B/L)
+    method: playwright
+    selector: "#bl-no"
+    value_from: params.hbl_no
+
+  - action: fill
+    description: Enter the MBL No.
+    method: playwright
+    selector: "#mbl-no"
+    value_from: params.mbl_no
+
+  # Leaving the field makes ODeX fill in the FPOD, Office Location, Consignee Name and
+  # Container Details from the BL.
+  - action: press
+    description: Leave the MBL No.
+    method: playwright
+    selector: "#mbl-no"
+    key: Tab
+
+  # The form has no box of its own (its fields sit over the picture), so it is never
+  # "visible": wait for its flag only.
+  - action: wait_for_selector
+    description: Wait for ODeX to fill in the BL's details
+    method: playwright
+    selector: "#deposit-form[data-details='filled']"
+    state: attached
+
+  - action: execute_script
+    description: Choose Non-ODeX-RTGS, ThirdParty and the party the deposit is refunded to
+    method: playwright
+    script_args:
+      payment_mode: "Non-ODeX-RTGS"
+      refund_to: "ThirdParty"
+      refund_party: params.refund_party
+    script: |
+      ({ payment_mode, refund_to, refund_party }) => {
         const choose = (selector, wanted) => {
           const select = document.querySelector(selector);
-          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          const want = String(wanted).trim().toUpperCase();
+          const option = [...select.options].find((o) => o.value && (o.value.toUpperCase() === want || o.text.trim().toUpperCase() === want));
           if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
           select.value = option.value;
           select.dispatchEvent(new Event('change', { bubbles: true }));
         };
-        choose('#liner', liner);
-        choose('#paymentMode', payment_mode);
-        choose('#refundTo', refund_to);
+        choose('#mode-of-payment', payment_mode);
+        choose('#refund-to', refund_to);
+        choose('#refund-to-name', refund_party);
       }
 
-  - action: fill
-    description: Enter the house B/L number
+  - action: wait_for_selector
+    description: Wait for ODeX to fill in the Refund To PAN
     method: playwright
-    selector: "#blNo"
-    value_from: params.hbl_no
+    selector: "#refund-to-pan:not([value=''])"
+
+  # The attachment: the NOC on the letterhead of the MBL's consignee.
+  - action: execute_script
+    description: Name the attachment
+    method: playwright
+    script_args:
+      doc_name: "NOC (on the letter head of MBL consignee)"
+    script: |
+      ({ doc_name }) => {
+        const select = document.querySelector('#attachment-name');
+        const option = [...select.options].find((o) => o.value === doc_name || o.text.trim() === doc_name);
+        if (!option) throw new Error(`ODeX has no document "${doc_name}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: upload_file
+    description: Attach the NOC
+    method: playwright
+    selector: "#attachment-file"
+    file_path_from: params.noc_file
+
+  # The payment details: the deposit as the bank paid it, and CMA CGM's receipt for it.
 
   - action: fill
-    description: Enter the deposit amount
+    description: Enter the Bank
+    method: playwright
+    selector: "#bank"
+    value_from: params.bank
+
+  - action: fill
+    description: Enter the Amount
     method: playwright
     selector: "#amount"
     value_from: params.amount
 
   - action: fill
-    description: Enter the UTR of the deposit payment
+    description: Enter the Bank Payment Reference (the deposit's UTR)
     method: playwright
-    selector: "#utrNo"
+    selector: "#bank-payment-reference"
     value_from: params.utr
 
   - action: fill
-    description: Enter the payment date
+    description: Enter the Payment date
     method: playwright
-    selector: "#paymentDate"
+    selector: "#payment-date"
     value_from: params.payment_date
 
   - action: fill
-    description: Enter the paying bank
+    description: Enter the CMA iReceipt No
     method: playwright
-    selector: "#bankName"
-    value_from: params.bank_name
+    selector: "#cma-ireceipt-no"
+    value_from: params.ireceipt_no
+
+  # The refund details: the account the refund goes to.
 
   - action: fill
-    description: Enter the third party the refund goes to
+    description: Enter the Beneficiary Name (as per bank records)
     method: playwright
-    condition: params.third_party_name
-    selector: "#thirdPartyName"
-    value_from: params.third_party_name
+    selector: "#beneficiary-name"
+    value_from: params.beneficiary_name
 
-  - action: upload_file
-    description: Attach the NOC for refunding a third party
+  - action: fill
+    description: Enter the refund's Bank Name
     method: playwright
-    condition: params.noc_file
-    selector: "#nocFile"
-    file_path_from: params.noc_file
+    selector: "#refund-bank-name"
+    value_from: params.refund_bank
 
-  - action: upload_file
-    description: Attach the security deposit receipt
+  - action: fill
+    description: Enter the refund's Branch Name
     method: playwright
-    selector: "#receiptFile"
-    file_path_from: params.receipt_file
+    selector: "#branch-name"
+    value_from: params.refund_branch
 
-  # The submit and the check are separate steps: the agent retries a failed step,
-  # and only the check is safe to repeat.
+  - action: fill
+    description: Enter the refund's A/C Type
+    method: playwright
+    selector: "#ac-type"
+    value_from: params.refund_account_type
+
+  - action: fill
+    description: Enter the refund's A/C No.
+    method: playwright
+    selector: "#ac-no"
+    value_from: params.refund_account_no
+
+  - action: fill
+    description: Enter the refund's IFSC Code
+    method: playwright
+    selector: "#ifsc-code"
+    value_from: params.refund_ifsc
+
+  # Guide, step 4. The submit and the check are separate steps: the agent retries a
+  # failed step, and only the check is safe to repeat.
   - action: click
-    description: Submit the deposit
+    description: SUBMIT
     method: playwright
-    selector: "#submit"
+    selector: "#submit-deposit"
 
   - action: wait_for_selector
     description: Wait for ODeX's answer
@@ -223,16 +357,72 @@ steps:
     selector: "#outcome"
 
   - action: execute_script
-    description: Read the deposit reference ODeX gave
+    description: Make sure ODeX took the request
     method: playwright
-    extract_result: true
     script: |
       () => {
         const outcome = document.querySelector('#outcome');
         if (outcome.dataset.status !== 'accepted') {
           throw new Error(`ODeX turned the deposit down: ${outcome.dataset.message}`);
         }
-        return { odex_deposit_ref: outcome.dataset.reference };
+      }
+
+  # Guide, step 4: the Request No. shows when the request is searched by its BL No.
+  # and opened with View.
+
+  - action: fill
+    description: Search for the BL No.
+    method: playwright
+    selector: "#search-bl"
+    value_from: params.hbl_no
+
+  - action: click
+    description: Search
+    method: playwright
+    selector: "#search-go"
+
+  - action: wait_for_selector
+    description: Wait for the BL's requests
+    method: playwright
+    selector: "#deposit-list[data-search='{params.hbl_no}']"
+
+  - action: execute_script
+    description: Tick the BL's request
+    method: playwright
+    script_args:
+      hbl_no: params.hbl_no
+    script: |
+      ({ hbl_no }) => {
+        const row = [...document.querySelectorAll('#deposit-rows [data-bl]')].find((r) => r.dataset.bl === hbl_no);
+        if (!row) throw new Error(`ODeX lists no deposit request for BL ${hbl_no}`);
+        const box = row.querySelector('.row-select');
+        if (!box.checked) box.click();
+      }
+
+  - action: click
+    description: View
+    method: playwright
+    selector: "#view"
+
+  - action: wait_for_selector
+    description: Wait for the request
+    method: playwright
+    selector: "#request-no"
+
+  - action: execute_script
+    description: Read the Request No. and the Status
+    method: playwright
+    extract_result: true
+    script_args:
+      hbl_no: params.hbl_no
+    script: |
+      ({ hbl_no }) => {
+        const shown = document.querySelector('#view-bl-no').textContent.trim();
+        if (shown !== hbl_no) throw new Error(`ODeX opened BL ${shown}'s request, not ${hbl_no}'s`);
+        return {
+          odex_deposit_ref: document.querySelector('#request-no').textContent.trim(),
+          odex_deposit_status: document.querySelector('#request-status').textContent.trim(),
+        };
       }
 
   - action: end

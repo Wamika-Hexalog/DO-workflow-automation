@@ -227,29 +227,43 @@ def _rtgs_deposit(job: _Job, hbl: str | None) -> dict[str, str]:
 
 
 def _deposit(job: _Job, hbl: str | None) -> dict[str, str]:
-    refund_to = job.field("deposit_refund_to")
-    # A refund to anyone but the consignee who paid needs the consignee's NOC.
-    third_party = refund_to == "Third Party"
-    params = {
+    """The team's guide "Security deposit number 1": one request per house bill, refunded
+    to the CHA as a third party. Mode Of Payment is Non-ODeX-RTGS every time (the SOP's
+    own): Finance pays CMA CGM by RTGS."""
+    if job.field("deposit_refund_to") == "Consignee":
+        raise service.NotReady(
+            "ODeX's deposit asks for the account the refund goes to, and the fixed details have only the CHA's. "
+            "Raise a deposit refunded to the consignee on ODeX by hand."
+        )
+    return {
+        "odex_location": job.field("odex_location"),
         "liner": job.field("odex_liner"),
-        # ODeX takes a deposit per B/L: each house bill gets its own.
+        # ODeX takes a deposit per B/L: each house bill gets its own, with the MBL beside it.
         "hbl_no": hbl or "",
-        "amount": job.field("deposit_amount"),
+        "mbl_no": job.field("mbl_no"),
+        "refund_party": job.field("refund_party"),
+        # The refund goes to the CHA, not to the consignee who paid: the consignee's NOC.
+        "noc_file": job.refund_noc(),
+        "bank": job.field("payer_bank"),
+        "amount": job.money("deposit_amount"),
         "utr": job.field("deposit_utr"),
-        "payment_date": job.field("payment_date"),
-        "bank_name": job.field("payer_bank"),
-        "refund_to": refund_to,
-        "third_party_name": job.field("cha") if third_party else "",
-        "receipt_file": job.document("security_receipt"),
-        "noc_file": "",
+        "payment_date": job.day_month_year("payment_date"),
+        "ireceipt_no": job.field("security_receipt_no"),
+        "beneficiary_name": job.field("refund_party"),
+        "refund_bank": job.field("refund_bank"),
+        "refund_branch": job.field("refund_branch"),
+        "refund_account_type": job.field("refund_account_type"),
+        "refund_account_no": job.field("refund_account_no"),
+        "refund_ifsc": job.field("refund_ifsc"),
     }
-    if third_party:
-        params["noc_file"] = job.refund_noc()
-    return params
 
 
 def _deposit_status(job: _Job, hbl: str | None) -> dict[str, str]:
-    return {"hbl_no": hbl or "", "slip_save_path": job.portal_file(f"{hbl}-security-deposit-slip.pdf")}
+    return {
+        "odex_location": job.field("odex_location"),
+        "hbl_no": hbl or "",
+        "slip_save_path": job.portal_file(f"{hbl}-security-deposit-slip.pdf"),
+    }
 
 
 def _do_request(job: _Job, hbl: str | None) -> dict[str, str]:
@@ -328,7 +342,7 @@ STEPS: dict[str, PortalStep] = {
         ),
         PortalStep(
             DEPOSIT, "Raising the security deposit on ODeX", ODEX,
-            _local("odex/deposit_new.yaml"), True, ("odex_deposit_ref",), _deposit,
+            _local("odex/deposit_new.yaml"), True, ("odex_deposit_ref", "odex_deposit_status"), _deposit,
         ),
         PortalStep(
             DEPOSIT_STATUS, "Checking the deposit on ODeX", ODEX,
