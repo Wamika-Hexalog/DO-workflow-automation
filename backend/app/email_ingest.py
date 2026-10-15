@@ -30,6 +30,8 @@ def find_shipment_job(rt: Runtime, key: str) -> str | None:
 
 
 _CONTAINER_RE = re.compile(r"\b([A-Z]{3}[UJZ])[ -]?(\d{6})[ -]?(\d)\b")
+# CMA CGM's invoice names the MBL too, but it isn't a bill.
+_INVOICE = re.compile(r"\b(?:TAX|IMPORT) INVOICE\b", re.I)
 
 # First match wins, so the longer names come first. From the sample file names in the shared Docs.
 _ROUTES = (
@@ -124,6 +126,9 @@ def route_files_job(rt: Runtime, shipment_id: str, files: list[dict[str, str]]) 
                 continue
             key = doc_key_for(name)
             if key is None:  # an unhelpful file name: a house bill has an HBL number, the MBL has the job's
+                if _INVOICE.search(text):
+                    skipped.append({"name": name, "reason": "an invoice, not a bill"})
+                    continue
                 if re.search(rt.settings.hbl_pattern, text):
                     key = "hbl"
                 elif str(shipment.data.get("mbl_no", "")).strip().upper() in text.upper():
