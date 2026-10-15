@@ -141,7 +141,7 @@ def route_files_job(rt: Runtime, shipment_id: str, files: list[dict[str, str]]) 
                     skipped.append({"name": name, "reason": "no house bill number found in the file"})
                     continue
                 if number not in hbls:
-                    values["hbl_nos"] = "\n".join([*hbls, number])
+                    values["hbl_nos"] = "\n".join(sorted({*hbls, number}))  # one order, whichever file arrives first
                     filled.add("hbl_nos")
                 slot_id = f"{key}:{number}"
             for field, value in extract_fields(key, text).items():

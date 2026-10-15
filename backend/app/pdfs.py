@@ -61,7 +61,7 @@ def _rtf_to_pdf(data: bytes, filename: str) -> bytes:
     from striprtf.striprtf import rtf_to_text
 
     try:
-        text = rtf_to_text(data.decode("latin-1"))
+        text = re.sub(r"\n{3,}", "\n\n", rtf_to_text(data.decode("latin-1")).replace("|", "\n"))  # "|" marks a table cell
     except Exception as exc:  # noqa: BLE001 - striprtf raises whatever it trips on
         raise UnreadableFile(f"{filename} could not be read as a Word/RTF file.") from exc
     lines = [part for line in text.splitlines() for part in (textwrap.wrap(line, 95) or [""])]

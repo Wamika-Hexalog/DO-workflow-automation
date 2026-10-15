@@ -301,3 +301,18 @@ def test_a_second_draft_mail_for_the_same_mbl_does_not_open_a_second_job(
         receive(client, mid)
         engine.run()
     assert len([j for j in api.get("/api/shipments").json() if j["values"]["mbl_no"] == mbl]) == 1
+
+
+def test_house_bills_are_listed_in_order_whichever_file_arrives_first(
+    api: TestClient, engine: Engine, client: RecordingInngest, inbox: dict
+) -> None:
+    mbl = "SHZ1234567"
+    inbox["m1"] = mail(f"DOHACK:document:{mbl}")
+    ATTACHMENTS["m1"] = [
+        ("12345678B HBL.pdf", HBL_PAGE.format(hbl="WOLSZSE12345678B", box=containers.EXAMPLE)),
+        ("12345678A HBL.pdf", HBL_PAGE.format(hbl="WOLSZSE12345678A", box=containers.EXAMPLE)),
+    ]
+    receive(client)
+    engine.run()
+    (job,) = [j for j in api.get("/api/shipments").json() if j["values"]["mbl_no"] == mbl]
+    assert job["values"]["hbl_nos"] == "WOLSZSE12345678A\nWOLSZSE12345678B"
