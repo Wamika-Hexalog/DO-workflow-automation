@@ -92,7 +92,7 @@ class Settings:
     # order to try them: when one is busy or retired, the next one reads. Without a key,
     # such a mail is left unread.
     google_api_key: str = ""
-    mail_ai_model: str = "gemini-3.5-flash,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.8-flash"
+    mail_ai_model: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
     # Logins for the public tunnel, "user:password,user2:password2". Local requests need none.
     basic_auth_users: str = ""
 
