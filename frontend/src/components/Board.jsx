@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Card from "./Card.jsx";
 import { CheckIcon } from "./Icons.jsx";
+import { stageTone } from "./Route.jsx";
 
 function matcher(query) {
   const q = query.trim().toLowerCase().replace(/\s+/g, "");
@@ -39,7 +40,7 @@ export default function Board({ stages, shipments, query, focusId, flashId, onOp
       {stages.map((stage, step) => {
         const cards = shipments.filter((s) => s.status === stage.id && matches(s));
         return (
-          <section key={stage.id} id={`col-${stage.id}`} className="col" aria-label={stage.name}>
+          <section key={stage.id} id={`col-${stage.id}`} className="col" style={stageTone(step)} aria-label={stage.name}>
             <h2 className="col-head">
               <span className="col-step">{String(step + 1).padStart(2, "0")}</span>
               <span className="col-name">{stage.name}</span>

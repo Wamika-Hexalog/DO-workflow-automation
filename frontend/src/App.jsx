@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.js";
 import Board from "./components/Board.jsx";
 import Detail from "./components/Detail.jsx";
+import Faq from "./components/Faq.jsx";
+import Helper from "./components/Helper.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import TopBar from "./components/TopBar.jsx";
 import { indexFolder } from "./lib/folder.js";
@@ -39,6 +41,7 @@ export default function App() {
   const [shipments, setShipments] = useState([]);
   const [load, setLoad] = useState({ state: "loading" });
   const [openId, setOpenId] = useState(null);
+  const [page, setPage] = useState("board");
   const [section, setSection] = useState("shipment");
   const [focusKey, setFocusKey] = useState(null);
   const [focusSlot, setFocusSlot] = useState(null);
@@ -228,7 +231,20 @@ export default function App() {
   const current = openId ? shipments.find((s) => s.id === openId) : null;
   return (
     <div className={`app${current ? " focused" : ""}`}>
-      {!current && <Sidebar stages={folder.stages} shipments={shipments} onStage={showStage} onReset={reset} />}
+      {!current && (
+        <Sidebar
+          page={page}
+          onPage={setPage}
+          stages={folder.stages}
+          shipments={shipments}
+          onStage={(id) => {
+            setPage("board");
+            // The board mounts first, then scrolls to the column.
+            setTimeout(() => showStage(id));
+          }}
+          onReset={reset}
+        />
+      )}
       <div className="workspace">
         {current ? (
           <Detail
@@ -252,6 +268,8 @@ export default function App() {
             onProfileSaved={onProfileSaved}
             say={say}
           />
+        ) : page === "faq" ? (
+          <Faq stages={folder.stages} />
         ) : (
           <>
             <TopBar
@@ -273,6 +291,7 @@ export default function App() {
           </>
         )}
       </div>
+      {!current && page === "board" && <Helper onOpenFaq={() => setPage("faq")} />}
       <div className="toast-wrap" role="status" aria-live="polite">
         {toast && (
           <div className="toast" key={toast.at}>

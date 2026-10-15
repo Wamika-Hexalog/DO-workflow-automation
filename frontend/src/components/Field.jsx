@@ -35,7 +35,7 @@ export default function Field({ field, value, onChange, uses, issues, pending })
     );
   }
 
-  const className = `input${field.code ? " code" : ""}`;
+  const className = `input${field.code ? " code" : ""}${issues && issues.length ? " bad" : ""}`;
   const wide = field.type === "textarea" || field.type === "containers" || field.type === "list";
   let control;
   if (field.type === "select") {
@@ -55,6 +55,7 @@ export default function Field({ field, value, onChange, uses, issues, pending })
         id={id}
         className={className}
         rows={field.type === "textarea" ? 3 : 2}
+        placeholder=" "
         value={value || ""}
         spellCheck={field.code ? false : undefined}
         onChange={(e) => onChange(e.target.value)}
@@ -68,6 +69,7 @@ export default function Field({ field, value, onChange, uses, issues, pending })
         className={className}
         type={type}
         value={value ?? ""}
+        placeholder=" "
         autoComplete="off"
         inputMode={field.type === "number" ? "decimal" : undefined}
         spellCheck={field.code ? false : undefined}

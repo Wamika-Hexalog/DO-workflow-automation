@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { slotName } from "../lib/folder.js";
 import { fmtMoment, plural } from "../lib/format.js";
 import mascot from "../assets/mascot-ready.webp";
-import { AlertIcon } from "./Icons.jsx";
+import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, ExternalIcon } from "./Icons.jsx";
 
 // A document counts as seen until its content changes: a new file, or for a
 // letter the app writes, a change to the values it prints. The bonds never change.
@@ -73,13 +73,34 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
   const open = slots.filter((s) => s.status !== "ok").length;
   const folder = shipment.folder;
 
+  const src = slot.preview_url && `${slot.preview_url}?v=${encodeURIComponent(shipment.updated_at)}`;
+
   return (
-    <section>
-      <h3 className="section-title">Review and build</h3>
-      <p className="section-sub">
-        Look through every document as it will appear in the PDF, stamps included. Building joins them into one
-        file for the DO request on ODeX.
-      </p>
+    <section className="review-page">
+      <header className="review-head">
+        <h3 className="section-title">Review and build</h3>
+        {open > 0 ? (
+          <div className="banner warn compact">
+            <AlertIcon size={16} />
+            <p>
+              <strong>{plural(open, "document")} need attention</strong> before the folder can be built.
+            </p>
+            <button type="button" className="btn btn-sm" onClick={() => goTo("documents")}>
+              View documents
+            </button>
+          </div>
+        ) : (
+          <div className="banner ready compact">
+            <img src={mascot} alt="" width="290" height="480" />
+            <p>
+              <strong>All {slots.length} documents are ready.</strong>{" "}
+              {unseen > 0
+                ? `Look through the ${plural(unseen, "document")} not seen yet, then build the folder.`
+                : "Every document has been looked at. Confirm and build the folder."}
+            </p>
+          </div>
+        )}
+      </header>
 
       {folder && (
         <div className={`notice${folder.stale ? " warn" : ""}`}>
@@ -109,75 +130,94 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
         <DoRequest shipment={shipment} automated={automated} onApprove={onApprove} approving={approving} />
       )}
 
-      {open > 0 ? (
-        <div className="banner warn">
-          <AlertIcon size={18} />
-          <div>
-            <strong>{plural(open, "document")} need attention</strong>
-            <p>The folder can be built once every document is in place and checked.</p>
-          </div>
-          <button type="button" className="btn btn-sm" onClick={() => goTo("documents")}>
-            View documents
-          </button>
-        </div>
-      ) : (
-        <div className="banner ready">
-          <img src={mascot} alt="" width="290" height="480" />
-          <div>
-            <strong>All {slots.length} documents are ready</strong>
-            <p>
-              {unseen > 0
-                ? `Look through the ${plural(unseen, "document")} not seen yet, then build the folder.`
-                : "Every document has been looked at. Confirm below and build the folder."}
-            </p>
-          </div>
-        </div>
-      )}
-
       <div className="review">
-        <ol className="review-list">
-          {slots.map((s, i) => (
-            <li key={s.id}>
-              <button
-                type="button"
-                className={`review-item${i === current ? " active" : ""}`}
-                aria-current={i === current ? "true" : undefined}
-                onClick={() => setCurrent(i)}
-              >
-                <span className="num">{i + 1}</span>
-                <span className="label" title={slotName(s)}>
-                  {slotName(s)}
-                </span>
-                <span className={`tick ${s.status !== "ok" ? s.status : isSeen(s) ? "seen" : ""}`}>
-                  {s.status === "missing" ? "Missing" : s.status === "flagged" ? "Check" : isSeen(s) ? "Seen" : ""}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
-        <div className="viewer">
-          <div className="viewer-bar">
-            <button type="button" className="btn" disabled={current === 0} onClick={() => setCurrent(current - 1)}>
-              Previous
-            </button>
-            <span className="viewer-title">
-              {current + 1}. {slotName(slot)}
-            </span>
+        <div className="review-side">
+          <ol className="review-list">
+            {slots.map((s, i) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  className={`review-item${i === current ? " active" : ""}`}
+                  aria-current={i === current ? "true" : undefined}
+                  onClick={() => setCurrent(i)}
+                >
+                  <span className="num">{i + 1}</span>
+                  <span className="label" title={slotName(s)}>
+                    {slotName(s)}
+                  </span>
+                  <span className={`tick ${s.status !== "ok" ? s.status : isSeen(s) ? "seen" : ""}`}>
+                    {s.status === "missing" ? "Missing" : s.status === "flagged" ? "Check" : isSeen(s) ? "Seen" : ""}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <div className="build">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                disabled={unseen > 0}
+                onChange={(e) => setConfirmed(e.target.checked)}
+              />
+              <span>
+                I have looked at all {slots.length} documents and they belong to job {shipment.job_no}, MBL{" "}
+                {shipment.values.mbl_no || "not set"}.
+              </span>
+            </label>
+            <p className="hint">
+              {unseen > 0 ? `${plural(unseen, "document")} not looked at yet.` : "Every document has been looked at."}
+            </p>
             <button
               type="button"
-              className="btn"
+              className="btn btn-primary"
+              disabled={!confirmed || unseen > 0 || open > 0 || building || shipment.building}
+              onClick={async () => {
+                if (await onBuild()) setConfirmed(false);
+              }}
+            >
+              {building ? "Building…" : folder ? "Build the DO folder again" : "Build the DO folder"}
+            </button>
+          </div>
+        </div>
+        <div className="viewer">
+          <div className="viewer-bar">
+            <button
+              type="button"
+              className="btn btn-sm btn-icon"
+              aria-label="Previous document"
+              disabled={current === 0}
+              onClick={() => setCurrent(current - 1)}
+            >
+              <ChevronLeftIcon />
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-icon"
+              aria-label="Next document"
               disabled={current === slots.length - 1}
               onClick={() => setCurrent(current + 1)}
             >
-              Next
+              <ChevronRightIcon />
             </button>
+            <span className="viewer-title">{slotName(slot)}</span>
+            <span className="viewer-count">
+              {current + 1} of {slots.length}
+            </span>
+            {src && (
+              <a className="btn btn-sm" href={src} target="_blank" rel="noreferrer">
+                <ExternalIcon size={14} />
+                Open
+              </a>
+            )}
           </div>
-          {slot.preview_url ? (
+          {src ? (
+            // The browser's own PDF toolbar is hidden to give the page its height; Open has zoom and print.
             <iframe
               key={currentKey}
               className="viewer-frame"
               title={`Preview of ${slotName(slot)}`}
-              src={`${slot.preview_url}?v=${encodeURIComponent(shipment.updated_at)}#view=FitH`}
+              src={`${src}#toolbar=0&navpanes=0&view=FitH`}
             />
           ) : (
             <div className="viewer-empty">
@@ -185,34 +225,6 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
             </div>
           )}
         </div>
-      </div>
-
-      <div className="build">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            disabled={unseen > 0}
-            onChange={(e) => setConfirmed(e.target.checked)}
-          />
-          <span>
-            I have looked at all {slots.length} documents and they belong to job {shipment.job_no}, MBL{" "}
-            {shipment.values.mbl_no || "not set"}.
-          </span>
-        </label>
-        <p className="hint">
-          {unseen > 0 ? `${plural(unseen, "document")} not looked at yet.` : "Every document has been looked at."}
-        </p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!confirmed || unseen > 0 || open > 0 || building || shipment.building}
-          onClick={async () => {
-            if (await onBuild()) setConfirmed(false);
-          }}
-        >
-          {building ? "Building…" : folder ? "Build the DO folder again" : "Build the DO folder"}
-        </button>
       </div>
     </section>
   );

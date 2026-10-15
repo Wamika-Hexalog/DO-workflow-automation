@@ -1,7 +1,7 @@
 // Documents ready, as text and a bar; the text alone carries the meaning.
 export default function Progress({ ok, total }) {
   return (
-    <div className="progress">
+    <div className={`progress${total && ok === total ? " done" : ""}`}>
       <div className="progress-head">
         <span>Documents</span>
         <span className="progress-count">

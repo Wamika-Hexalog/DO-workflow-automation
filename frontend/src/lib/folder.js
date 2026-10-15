@@ -15,7 +15,7 @@ export function indexFolder(raw) {
   };
 }
 
-export const SECTIONS = ["shipment", "fixed", "documents", "review", "portal", "history"];
+export const SECTIONS = ["shipment", "fixed", "portal", "documents", "review", "history"];
 
 export function sectionTitle(id) {
   return {
@@ -23,7 +23,7 @@ export function sectionTitle(id) {
     fixed: "Fixed details",
     documents: "DO folder",
     review: "Review and build",
-    portal: "CMA CGM and ODeX",
+    portal: "Stages",
     history: "History",
   }[id];
 }

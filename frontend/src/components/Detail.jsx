@@ -2,15 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useAutosave } from "../hooks/useAutosave.js";
 import { profileDone, requiredFieldsDone, SECTIONS, sectionTitle } from "../lib/folder.js";
-import { fmtMoment, plural, splitLines } from "../lib/format.js";
-import { ArrowLeftIcon, CheckIcon } from "./Icons.jsx";
+import { fmtMoment, initials, plural, splitLines } from "../lib/format.js";
+import { ArrowLeftIcon, CheckIcon, FileIcon, ShipIcon } from "./Icons.jsx";
 import Progress from "./Progress.jsx";
 import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
 import History from "./History.jsx";
 import Review from "./Review.jsx";
-import Portal from "./Portal.jsx";
 import { Route } from "./Route.jsx";
+import Stages from "./Stages.jsx";
 
 function NavItem({ label, active, done, state, warn, onClick }) {
   return (
@@ -140,10 +140,14 @@ export default function Detail({
   const hbls = splitLines(values.hbl_nos);
   const built = shipment.folder;
   const vessel = [values.vessel, values.voyage].filter(Boolean).join(" ");
+  const open = shipment.slots.filter((s) => s.status !== "ok").length;
+  const stageAt = Math.max(0, folder.stages.findIndex((s) => s.id === shipment.status));
 
   let content;
   if (section === "fixed") {
-    content = <FixedForm folder={folder} values={profileValues} setValue={profileEdits.setValue} />;
+    content = (
+      <FixedForm folder={folder} values={profileValues} setValue={profileEdits.setValue} status={shipment.field_status} />
+    );
   } else if (section === "documents") {
     content = (
       <FolderList
@@ -171,7 +175,16 @@ export default function Detail({
       />
     );
   } else if (section === "portal") {
-    content = <Portal shipment={shipment} />;
+    content = (
+      <Stages
+        shipment={shipment}
+        stages={folder.stages}
+        goTo={goTo}
+        onMove={async (to) => {
+          if (await saveAll()) onMove(shipment.id, to);
+        }}
+      />
+    );
   } else if (section === "history") {
     content = <History shipment={shipment} stageNames={folder.stageNames} />;
   } else {
@@ -182,13 +195,14 @@ export default function Detail({
         setValue={shipmentEdits.setValue}
         issues={shipment.issues}
         pendingKeys={new Set(Object.keys(shipmentEdits.edits))}
+        status={shipment.field_status}
       />
     );
   }
 
   return (
     <div className="detail" ref={detailRef}>
-      <header className="d-head">
+      <header className={`d-head${section === "review" ? " slim" : ""}`}>
         <div className="d-bar">
           <button type="button" className="btn btn-quiet back" onClick={leave}>
             <ArrowLeftIcon />
@@ -198,13 +212,33 @@ export default function Detail({
         </div>
         <div className="d-row">
           <div className="d-id">
-            <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
-            <p className="d-meta">
-              <span className="mono">{shipment.job_no}</span>
-              <span>{vessel || "Vessel not set"}</span>
-              <span className={hbls.length ? "mono" : undefined}>{hbls.length ? `HBL ${hbls.join(" · ")}` : "HBL not set"}</span>
-              {shipment.owner && <span>{shipment.owner}</span>}
-            </p>
+            <div className="d-name">
+              <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
+              {shipment.ready ? (
+                <span className="badge ready">Ready to build</span>
+              ) : (
+                <span className="badge missing">{plural(open, "document")} to go</span>
+              )}
+            </div>
+            <div className="d-chips">
+              <span className="chip mono">{shipment.job_no}</span>
+              <span className="chip">
+                <ShipIcon size={14} />
+                {vessel || "Vessel not set"}
+              </span>
+              <span className={`chip${hbls.length ? " mono" : ""}`}>
+                <FileIcon size={14} />
+                {hbls.length ? `HBL ${hbls.join(" · ")}` : "HBL not set"}
+              </span>
+              {shipment.owner && (
+                <span className="chip">
+                  <span className="avatar xs" aria-hidden="true">
+                    {initials(shipment.owner)}
+                  </span>
+                  {shipment.owner}
+                </span>
+              )}
+            </div>
           </div>
           <label className="stage-pick">
             <span>Stage</span>
@@ -223,13 +257,16 @@ export default function Detail({
               ))}
             </select>
           </label>
-          <button type="button" className="btn btn-primary" onClick={() => goTo("review")}>
+          {/* Purple only when the folder can be built; until then it is one way in, not the next step. */}
+          <button type="button" className={`btn${shipment.ready ? " btn-primary" : ""}`} onClick={() => goTo("review")}>
             Review and build
           </button>
         </div>
         <div className="d-progress">
           <Progress ok={shipment.docs_ok} total={shipment.docs_total} />
-          <Route stages={folder.stages} at={Math.max(0, folder.stages.findIndex((s) => s.id === shipment.status))} />
+          <button type="button" className="route-link" title="Open the stages" onClick={() => goTo("portal")}>
+            <Route stages={folder.stages} at={stageAt} />
+          </button>
           <p>
             {built && !built.stale && (
               <>
@@ -246,6 +283,7 @@ export default function Detail({
       </header>
       <div className="d-body">
         <nav className="nav" aria-label="Sections">
+          <p className="nav-label first">Job</p>
           <NavItem
             label="Shipment details"
             active={section === "shipment"}
@@ -259,6 +297,12 @@ export default function Detail({
             done={profileDone(folder, shipment)}
             state="Check"
             onClick={() => goTo("fixed")}
+          />
+          <NavItem
+            label="Stages"
+            active={section === "portal"}
+            state={`${stageAt + 1}/${folder.stages.length}`}
+            onClick={() => goTo("portal")}
           />
           <p className="nav-label">DO folder</p>
           <NavItem
@@ -275,12 +319,6 @@ export default function Detail({
             warn={built && built.stale}
             state={built ? "Out of date" : ""}
             onClick={() => goTo("review")}
-          />
-          <NavItem
-            label="CMA CGM and ODeX"
-            active={section === "portal"}
-            state=""
-            onClick={() => goTo("portal")}
           />
           <NavItem label="History" active={section === "history"} state="" onClick={() => goTo("history")} />
           <p className="nav-note">

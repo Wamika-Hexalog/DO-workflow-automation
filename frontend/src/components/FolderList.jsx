@@ -15,7 +15,8 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
   const replaced = generated && slot.source === "upload";
   // A per-HBL document can't take a file until its house bill number is entered.
   const perHbl = folder.documents.find((d) => d.key === slot.doc_key).per_hbl;
-  const canAttach = slot.defined_source !== "fixed" && !(perHbl && !slot.hbl);
+  const needsHbl = perHbl && !slot.hbl && slot.defined_source !== "fixed";
+  const canAttach = slot.defined_source !== "fixed" && !needsHbl;
 
   // The Missing badge already says it; the flag would only repeat it.
   const flags = slot.flags.filter((f) => f.kind !== "missing");
@@ -139,8 +140,16 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
           </details>
         )}
       </div>
-      {flags.length > 0 && (
+      {(flags.length > 0 || needsHbl) && (
         <ul className="flags">
+          {needsHbl && (
+            <li className="flag fields">
+              Add the house B/L no. first: this document is attached once for each HBL.
+              <button type="button" className="linkbtn" onClick={() => goTo("shipment", "hbl_nos")}>
+                Add HBL no.
+              </button>
+            </li>
+          )}
           {flags.map((flag, i) => (
             <li key={i} className={`flag ${flag.kind}`}>
               {flag.message}
