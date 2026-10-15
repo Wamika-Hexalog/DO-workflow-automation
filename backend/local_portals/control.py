@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 
 from . import cma, pages
@@ -158,6 +158,44 @@ Turn autoplay {'off' if autoplay['on'] else 'on'}</button>
 <button class="btn" id="reset">Reset the local portals</button></form>"""
     # The page reloads when the state's version moves past the one it shows.
     return pages.page("Control panel", body, site="control", script=_RELOAD_SCRIPT, body_attrs=f'data-version="{version}"')
+
+
+# What the app shows of each request. The RTGS bank account and contacts stay here.
+_RECORD_KEYS = {
+    "invoice_requests": ("invoice_no", "amount", "invoice_file"),
+    "rtgs_requests": ("utr", "amount", "transfer_date", "receipts"),
+    "deposits": ("utr", "amount", "bank_name", "payment_date", "refund_to", "slip_file"),
+    "do_requests": ("edo_no", "edo_file"),
+}
+
+
+@router.get("/records")
+def records(request: Request, bl: list[str] = Query(default=[])) -> dict[str, Any]:
+    """Each request on the given B/L numbers, newest first, for the app's shipment page."""
+    wanted = {b.strip().upper() for b in bl if b.strip()}
+    out: dict[str, Any] = {}
+    with _store(request).read() as data:
+        for kind, keys in _RECORD_KEYS.items():
+            out[kind] = [
+                {
+                    "ref": item["ref"], "bl_no": item["bl_no"], "status": item["status"],
+                    "waiting": item["status"] == cma.WAITING[kind], "created_at": item["created_at"],
+                    "reason": item.get("reason", ""),
+                    **{k: item.get(k) for k in keys},
+                    **({"invoices": item["invoices"]} if kind == "rtgs_requests" else {}),
+                }
+                for item in reversed(data[kind])
+                if str(item.get("bl_no", "")).upper() in wanted
+                or any(str(r.get("bl_no", "")).upper() in wanted for r in item.get("invoices", []))
+            ]
+        files = {f for kind in out.values() for item in kind for f in _file_ids(item)}
+        out["files"] = {f: data["files"][f]["name"] for f in files if f in data["files"]}
+    return out
+
+
+def _file_ids(item: dict[str, Any]) -> list[str]:
+    ids = [item.get(k) for k in ("invoice_file", "slip_file", "edo_file")] + list(item.get("receipts") or [])
+    return [i for i in ids if i]
 
 
 @router.get("/version")

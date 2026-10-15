@@ -386,6 +386,27 @@ def test_autoplay_answers_each_request_once_it_has_waited(web):
     assert player.tick(datetime.now() + timedelta(minutes=5)) == []
 
 
+def test_the_records_show_one_shipments_requests_and_answers_without_bank_details(web):
+    # Protects: the app's shipment page reads its own requests and CMA CGM's answers. Fails if
+    # records match on another B/L, drop an answer, or pass on the RTGS bank account.
+    ask_invoice(web)
+    ask_invoice(web, bl_no="GGZ0000000")
+    store = web.app.state.store
+    mine = next(i for i in items(web, "invoice_requests") if i["bl_no"] == MBL)
+    cma.verify_invoice(store, mine["id"])
+    web.post(RTGS, data=rtgs_form([SHIPMENT_ROW]))
+
+    found = web.get("/control/records", params={"bl": [MBL.lower(), HBL]}).json()
+    (invoice,) = found["invoice_requests"]
+    assert invoice["status"] == "Released" and invoice["waiting"] is False
+    assert invoice["invoice_no"] and invoice["amount"] > 0
+    assert found["files"][invoice["invoice_file"]].endswith(".pdf")
+    (payment,) = found["rtgs_requests"]
+    assert payment["utr"] == "DEMOUTR0431INV" and payment["waiting"] is True
+    assert "123456789012" not in json.dumps(found)
+    assert found["deposits"] == [] and found["do_requests"] == []
+
+
 def test_reset_empties_the_portals(web):
     ask_invoice(web)
     cma.verify_invoice(web.app.state.store, items(web, "invoice_requests")[0]["id"])

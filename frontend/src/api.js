@@ -54,6 +54,7 @@ export const api = {
   // Both start a workflow and answer at once; poll the shipment for the outcome.
   build: (id) => request("POST", `/shipments/${id}/build`, { confirmed: true }),
   completeTask: (id, key) => request("POST", `/shipments/${id}/tasks/${key}/complete`, {}),
+  portal: (id) => request("GET", `/shipments/${id}/portal`),
   events: (id) => request("GET", `/shipments/${id}/events`),
   resetDemo: () => request("POST", "/demo/reset"),
 };

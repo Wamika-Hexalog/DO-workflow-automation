@@ -543,6 +543,25 @@ textarea.input { min-height: 72px; resize: vertical; }
 .banner.ready { min-height: 72px; padding-left: 92px; border: var(--hair) solid rgba(131, 77, 251, .16); background: linear-gradient(90deg, var(--selected), #F8F6FF 70%); }
 .banner.ready img { position: absolute; bottom: -38px; left: 18px; width: 60px; height: auto; animation: peek .5s var(--ease-out) both; }
 
+/* CMA CGM and ODeX: the four portal steps in order, each with its latest answer. */
+.portal { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; }
+.p-step { padding: 16px 18px; border: var(--hair) solid var(--rule); border-radius: var(--radius-md); background: var(--sheet); box-shadow: var(--shadow-card); border-top: 3px solid var(--hexa-lavender); }
+.p-step.ready { border-top-color: var(--hexa-violet); }
+.p-step.missing { border-top-color: var(--marker); }
+.p-step.error { border-top-color: var(--alert); }
+.p-head { display: flex; align-items: center; gap: 10px; }
+.p-head h4 { flex: 1; font-size: 15px; font-weight: 700; }
+.p-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--selected); color: var(--label); font-size: 12px; font-weight: 700; }
+.p-empty { margin-top: 10px; color: var(--ink-2); font-size: 13.5px; }
+.p-item { margin-top: 12px; padding-top: 12px; border-top: var(--hair) solid var(--hexa-lavender); }
+.p-item:first-of-type { border-top: 0; padding-top: 0; }
+.p-ref { color: var(--ink-2); font-size: 12.5px; }
+.p-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-top: 8px; }
+.p-facts .k { display: block; color: var(--ink-2); font-size: 12px; }
+.p-facts .v { display: block; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.p-files { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.p-files .linkbtn { font-size: 13px; }
+
 /* History */
 .history { display: grid; margin: 22px 0 0; padding: 0; list-style: none; border: var(--hair) solid var(--rule); border-radius: var(--radius-sm); background: var(--sheet); }
 .history li { display: grid; grid-template-columns: 110px 84px minmax(0, 1fr); align-items: baseline; gap: 4px 14px; padding: 10px 14px; border-top: var(--hair) solid var(--rule); font-size: 14px; }
@@ -589,6 +608,7 @@ textarea.input { min-height: 72px; resize: vertical; }
   .fleet::before { display: none; }
   .d-progress p { text-align: left; }
   .panel { padding: 16px; }
+  .portal { grid-template-columns: minmax(0, 1fr); }
   .board { gap: 12px; padding: 0 16px 16px; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; }
   .col { flex: 0 0 86%; }
   .detail { overflow-y: auto; }

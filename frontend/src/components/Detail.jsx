@@ -9,6 +9,7 @@ import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
 import History from "./History.jsx";
 import Review from "./Review.jsx";
+import Portal from "./Portal.jsx";
 import { Route } from "./Route.jsx";
 
 function NavItem({ label, active, done, state, warn, onClick }) {
@@ -169,6 +170,8 @@ export default function Detail({
         goTo={goTo}
       />
     );
+  } else if (section === "portal") {
+    content = <Portal shipment={shipment} />;
   } else if (section === "history") {
     content = <History shipment={shipment} stageNames={folder.stageNames} />;
   } else {
@@ -272,6 +275,12 @@ export default function Detail({
             warn={built && built.stale}
             state={built ? "Out of date" : ""}
             onClick={() => goTo("review")}
+          />
+          <NavItem
+            label="CMA CGM and ODeX"
+            active={section === "portal"}
+            state=""
+            onClick={() => goTo("portal")}
           />
           <NavItem label="History" active={section === "history"} state="" onClick={() => goTo("history")} />
           <p className="nav-note">

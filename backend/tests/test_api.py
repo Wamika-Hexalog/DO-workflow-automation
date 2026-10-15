@@ -239,3 +239,13 @@ def test_a_new_field_starts_at_its_default_without_making_folders_out_of_date(tm
         assert s["values"]["deposit_amount"] == "40000"
         assert s["values"]["deposit_refund_to"] == ""  # cleared by someone: stays cleared
         assert s["folder"]["stale"] is False
+
+
+def test_the_portal_records_say_unavailable_when_the_local_portals_are_not_running(tmp_path, private_dir):
+    # Protects: the shipment page still opens with the portals stopped. Fails if a refused
+    # connection to the portals turns into an error response.
+    settings = settings_for(tmp_path, private_dir, local_portals_url="http://127.0.0.1:9")
+    with TestClient(create_app(settings, RecordingInngest())) as api:
+        shipment = new_shipment(api)
+        assert api.get(f"/api/shipments/{shipment['id']}/portal").json() == {"available": False}
+        assert api.get(f"/api/shipments/{shipment['id']}/portal/files/abc123").status_code == 502

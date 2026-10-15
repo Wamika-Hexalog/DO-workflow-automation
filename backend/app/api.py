@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from typing import Annotated, Any
 
+import httpx
 import inngest
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -27,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from . import assemble, checks, containers, letters, pdfs, service, tasks
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
-from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot
+from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
 from .runtime import Runtime
 from .schemas import (
     BuildIn,
@@ -524,6 +525,36 @@ def list_runs(shipment_id: str, session: SessionDep) -> list[RunOut]:
         )
         for r in rows
     ]
+
+
+@router.get("/shipments/{shipment_id}/portal")
+def portal_records(shipment_id: str, session: SessionDep, rt: RuntimeDep) -> dict[str, Any]:
+    """What the local portals hold for this shipment's B/L numbers: the invoice, the
+    payments, the deposit and the DO request. Empty, and not available, when they don't run."""
+    shipment = _shipment(session, shipment_id)
+    bls = [b for b in [str(shipment.data.get("mbl_no") or ""), *split_list(shipment.data.get("hbl_nos"))] if b]
+    try:
+        reply = httpx.get(f"{rt.settings.local_portals_url}/control/records", params={"bl": bls}, timeout=3)
+        reply.raise_for_status()
+    except httpx.HTTPError:
+        return {"available": False}
+    return {"available": True, **reply.json()}
+
+
+@router.get("/shipments/{shipment_id}/portal/files/{file_id}")
+def portal_file(shipment_id: str, file_id: str, session: SessionDep, rt: RuntimeDep) -> Response:
+    """A file the local portals made (invoice, receipt, slip, eDO), passed through so it
+    opens on the tunnel too."""
+    _shipment(session, shipment_id)
+    if not file_id.isalnum():
+        raise HTTPException(404, "No such file.")
+    try:
+        reply = httpx.get(f"{rt.settings.local_portals_url}/control/files/{file_id}", timeout=10)
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "The local portals are not running. Start them with make portals.") from exc
+    if reply.status_code != 200:
+        raise HTTPException(404, "No such file.")
+    return Response(reply.content, media_type="application/pdf", headers={"Content-Disposition": reply.headers.get("content-disposition", "inline")})
 
 
 @router.get("/shipments/{shipment_id}/folder.pdf")
