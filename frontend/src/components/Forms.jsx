@@ -9,7 +9,7 @@ export function ShipmentForm({ folder, values, setValue, issues, pendingKeys }) 
         every letter.
       </p>
       {folder.shipment_groups.map((group) => (
-        <div key={group.title}>
+        <div key={group.title} className="panel">
           <h4 className="group-title">{group.title}</h4>
           <div className="grid">
             {group.fields.map((f) => (
@@ -38,7 +38,7 @@ export function FixedForm({ folder, values, setValue }) {
         The same for every job: who signs, who collects the DO, and where the line's office is. A change here
         updates the letters of every shipment, and folders already built will need building again.
       </p>
-      <div className="grid grid-top">
+      <div className="panel grid">
         {folder.profile_fields.map((f) => (
           <Field
             key={f.key}

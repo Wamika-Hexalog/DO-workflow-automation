@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { slotName } from "../lib/folder.js";
 import { fmtMoment, plural } from "../lib/format.js";
+import mascot from "../assets/mascot-ready.webp";
+import { AlertIcon } from "./Icons.jsx";
 
 // A document counts as seen until its content changes: a new file, or for a
 // letter the app writes, a change to the values it prints. The bonds never change.
@@ -107,13 +109,28 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
         <DoRequest shipment={shipment} automated={automated} onApprove={onApprove} approving={approving} />
       )}
 
-      {open > 0 && (
-        <div className="notice warn">
-          <strong>{plural(open, "document")} still need attention.</strong> The folder can be built once every
-          document is in place and checked.{" "}
-          <button type="button" className="linkbtn" onClick={() => goTo("documents")}>
-            Go to the DO folder
+      {open > 0 ? (
+        <div className="banner warn">
+          <AlertIcon size={18} />
+          <div>
+            <strong>{plural(open, "document")} need attention</strong>
+            <p>The folder can be built once every document is in place and checked.</p>
+          </div>
+          <button type="button" className="btn btn-sm" onClick={() => goTo("documents")}>
+            View documents
           </button>
+        </div>
+      ) : (
+        <div className="banner ready">
+          <img src={mascot} alt="" width="290" height="480" />
+          <div>
+            <strong>All {slots.length} documents are ready</strong>
+            <p>
+              {unseen > 0
+                ? `Look through the ${plural(unseen, "document")} not seen yet, then build the folder.`
+                : "Every document has been looked at. Confirm below and build the folder."}
+            </p>
+          </div>
         </div>
       )}
 
@@ -128,7 +145,9 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
                 onClick={() => setCurrent(i)}
               >
                 <span className="num">{i + 1}</span>
-                <span className="label">{slotName(s)}</span>
+                <span className="label" title={slotName(s)}>
+                  {slotName(s)}
+                </span>
                 <span className={`tick ${s.status !== "ok" ? s.status : isSeen(s) ? "seen" : ""}`}>
                   {s.status === "missing" ? "Missing" : s.status === "flagged" ? "Check" : isSeen(s) ? "Seen" : ""}
                 </span>

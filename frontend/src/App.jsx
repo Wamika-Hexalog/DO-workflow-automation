@@ -254,7 +254,14 @@ export default function App() {
           />
         ) : (
           <>
-            <TopBar query={query} setQuery={setQuery} shipments={shipments} onNew={newShipment} />
+            <TopBar
+              stages={folder.stages}
+              query={query}
+              setQuery={setQuery}
+              shipments={shipments}
+              onNew={newShipment}
+              onStage={showStage}
+            />
             <Board
               stages={folder.stages}
               shipments={shipments}

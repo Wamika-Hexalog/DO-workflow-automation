@@ -9,6 +9,7 @@ import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
 import History from "./History.jsx";
 import Review from "./Review.jsx";
+import { Route } from "./Route.jsx";
 
 function NavItem({ label, active, done, state, warn, onClick }) {
   return (
@@ -225,6 +226,7 @@ export default function Detail({
         </div>
         <div className="d-progress">
           <Progress ok={shipment.docs_ok} total={shipment.docs_total} />
+          <Route stages={folder.stages} at={Math.max(0, folder.stages.findIndex((s) => s.id === shipment.status))} />
           <p>
             {built && !built.stale && (
               <>
@@ -277,7 +279,7 @@ export default function Detail({
             {hbls.length > 1 ? `, with HBL documents once for each of ${hbls.length} house bills.` : "."}
           </p>
         </nav>
-        <div className="main" ref={mainRef}>
+        <div className={`main${section === "review" ? " tight" : ""}`} ref={mainRef}>
           <div className={`main-inner${section === "review" ? " wide" : ""}`}>
             <select
               className="input mobile-nav"
