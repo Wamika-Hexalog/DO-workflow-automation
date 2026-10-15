@@ -118,7 +118,7 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
     s = attach(api, new_shipment(api), "mbl", make_pdf(f"MASTER BILL {MBL}"))
 
-    # IGM filed: request the DO invoice on ODeX, the MBL attached as the Seaway BL
+    # Invoice requested: request the DO invoice on ODeX, the MBL attached as the Seaway BL
     # (the team's ODeX guide, steps 1-5). The liner releases the invoice on ODeX.
     assert run(api, s, REQUEST_INVOICE)[0]["odex_invoice_request_ref"].startswith("BL")
     assert run(api, s, INVOICE_FETCH)[0]["invoice_status"] == "PENDING"  # not out yet: nothing downloaded

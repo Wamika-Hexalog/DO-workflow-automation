@@ -17,7 +17,7 @@ MATCH_KEYS = frozenset({"mbl_no", "hbl", "containers"})
 
 # The CMA CGM delivery order process, from IGM filing to the eDO.
 STAGES: tuple[tuple[str, str], ...] = (
-    ("igm_filed", "IGM filed"),
+    ("igm_filed", "Invoice requested"),
     ("invoice_paid", "Invoice paid"),
     ("deposit_approved", "Deposit approved"),
     ("folder_ready", "DO folder ready"),

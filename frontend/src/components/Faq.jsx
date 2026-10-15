@@ -26,7 +26,7 @@ const QUESTIONS = [
 ];
 
 const ONE_LINE = {
-  igm_filed: "The job is open",
+  igm_filed: "DO invoice requested on ODeX",
   invoice_paid: "Finance paid the DO invoice",
   deposit_approved: "CMA CGM approved the deposit",
   folder_ready: "The DO folder PDF is built",
