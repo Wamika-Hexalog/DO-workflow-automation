@@ -12,7 +12,7 @@ The steps run only when `DO_AUTOMATE_PORTALS` is on. `make demo-local` turns it 
 | 4 | Download the invoice from ODeX | Step 3 | The agent | Collect the DO invoice from ODeX |
 | 5 | Send the invoice to Finance | Step 4 | The app | Send the DO invoice to Finance |
 | 6 | Finance pays and sends the UTRs | Finance's reply | The app | none (a mail) |
-| 7 | Confirm both payments on CMA CGM's RTGS page; the receipts come by mail | Ops approve | The agent | Confirm the shipment payment on CMA CGM's RTGS page; Confirm the security deposit on CMA CGM's RTGS page |
+| 7 | Confirm the payments on CMA CGM's RTGS page, twice: the delivery, then the security deposit. Each receipt comes by mail. | Ops approve | The agent | Confirm the shipment payment on CMA CGM's RTGS page; Confirm the security deposit on CMA CGM's RTGS page |
 | 8 | Raise the security deposit on ODeX | Ops approve | The agent | Raise the security deposit on ODeX |
 | 9 | ODeX says the deposit is approved | ODeX's security slip mail | The app | none (a mail) |
 | 10 | Review and build the DO folder | Every document is in place | Ops | Review and build the DO folder |
@@ -139,24 +139,29 @@ Then the two confirmations of step 7 come up for ops.
 
 ## 7. Confirm both payments on CMA CGM's RTGS page
 
-**Starts with:** ops approve each confirmation under Process. Each task shows the amount, the last 4 digits of the UTR and the date, and the shipment payment's task also shows the invoice. A task comes up only when the job has every value the page needs.
+CMA CGM's RTGS Confirmation page is filed twice, once for each payment Finance made: first the delivery (the DO invoice), then the security deposit. Each filing has its own UTR and gets its own receipt by mail.
 
-**7a. The shipment payment.** The agent fills CMA CGM's RTGS Confirmation page and submits it:
+**Starts with:** ops approve each filing under Process. The two tasks come up together, in that order. Each task shows the amount, the last 4 digits of the UTR and the date. The delivery's task also shows the invoice. A task comes up only when the job has every value the page needs.
 
-- Contact Details: the forwarder, the contact name and number, and the emails for the receipts (fixed details: `forwarder_name`, `rtgs_contact_name`, `rtgs_contact_number`, `do_mailbox`).
-- Payment Details: `payment_utr`, the bank account (`payer_account_no`), `do_invoice_amount` and `payment_date`.
-- Invoice Details: `do_invoice_no` against the MBL.
+The two filings have the same Contact Details, bank account and Date of Transfer: `forwarder_name`, `rtgs_contact_name`, `rtgs_contact_number`, the emails for the receipts (`do_mailbox`), `payer_account_no` and `payment_date`. These parts are different:
 
-The job moves to **Invoice paid**.
+| | 7a. The delivery | 7b. The security deposit |
+|---|---|---|
+| Task under Process | Confirm the shipment payment on CMA CGM's RTGS page | Confirm the security deposit on CMA CGM's RTGS page |
+| UTR Number | `payment_utr` (Finance's "Invoice UTR") | `deposit_utr` (Finance's "Deposit UTR") |
+| Amount | `do_invoice_amount` | `deposit_amount` (40000) |
+| Invoice Details, row 1 | Security Deposit not ticked. Invoice Number: `do_invoice_no`. BL Number: the MBL. Amount: the invoice's. | Security Deposit ticked, so there is no Invoice Number. BL Number: the MBL (the OBL). Amount: the deposit's. |
+| After the submit | The job moves to **Invoice paid**. | The job stays where it is. |
+| Receipt by mail (7c) | DO Receipt (folder document 7) | Security Receipt (folder document 5) |
 
-**7b. The security deposit.** The same page again, with `deposit_utr` and `deposit_amount`. In Invoice Details, Security Deposit is ticked against the MBL, with no invoice.
+For each filing, the agent ticks the privacy policy, submits the page and keeps the Request Reference from the "Submitted Successfully" page in the task's note.
 
-**7c. The receipts.** CMA CGM mails a receipt for each confirmation to the emails on the form (`do_mailbox`). Forward each one to the app's mailbox with `#DOHACK`. In `make demo-local`, the control panel sends them to the app by itself. The app reads:
+**7c. The receipts.** CMA CGM mails each receipt to the emails on the form (`do_mailbox`). Forward each one to the app's mailbox with `#DOHACK`. In `make demo-local`, the control panel sends them to the app by itself. Both mails are "RTGS/NEFT Confirmation Request Processed". The app tells them apart by the invoice row:
 
-| Mail | The receipt goes to |
+| Invoice row of the mail | The receipt goes to |
 |---|---|
-| "RTGS/NEFT Confirmation Request Processed", with an invoice row | DO Receipt (folder document 7) |
-| The same, with "-" in place of the invoice (the deposit) | Security Receipt (folder document 5) |
+| An invoice number (the delivery) | DO Receipt (folder document 7) |
+| "-" in place of the invoice (the security deposit) | Security Receipt (folder document 5) |
 
 **Workflows:** `do-rtgs-payment` and `do-rtgs-deposit`, then `customs/do.rtgs.submitted`. Each confirms money, so neither retries. If one fails, check the RTGS page before you approve it again.
 
