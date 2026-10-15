@@ -46,6 +46,18 @@ Invoice UTR:
 Deposit UTR: will follow
 """
 
+# ODeX's notice, forwarded twice: each table cell is a block, so a row spans lines.
+ODEX_RELEASED = (
+    "<div>---------- Forwarded message ---------<br />From: &lt;notification@odexservices.com&gt;<br />"
+    "Subject: ODeX: Invoices Received for SHZ1234567</div><div><br />Dear Sir/Madam,<br /><br />"
+    "Invoices released for SHZ1234567,<br />Type Of Delivery:   Factory Destuff<br />IGM No.:   <br /></div>"
+    "<table><tbody><tr><th><div>Invoice No.</div></th><th><div>Invoice Type</div></th>"
+    "<th><div>Total Invoice Amt.</div></th><th><div>Bill to Party</div></th></tr>"
+    "<tr><td><div><b>INIUPC00000001</b></div></td><td><div>NON FREIGHT</div></td><td><div>54720.68</div></td>"
+    "<td><div>HEXALOG GLOBAL SUPPLY CHAINSPVT LTD</div></td></tr></tbody></table>"
+    "<div>Note:This is a system generated e-mail. Please do NOT reply to it.<br />Regards,<br />ODeX Support Team</div>"
+)
+
 
 def facts(subject: str, body: str) -> list[tuple[str, str, str | None]]:
     return [(c.stage, c.mbl_no, c.arg) for c in infer_codes(subject, body, hbl_pattern=HBL_PATTERN)]
@@ -69,6 +81,13 @@ def test_an_rtgs_confirmation_without_an_invoice_is_the_deposit_and_its_security
 def test_the_security_slip_names_the_house_bill_whose_slot_it_fills() -> None:
     assert facts("#DOHACK Fw: ODeX: Security slip - SD2026000000001", SLIP) == [
         ("document", "WOLSZSE12345678A", "security_odex_receipt:WOLSZSE12345678A")
+    ]
+
+
+def test_odex_invoices_received_names_each_released_invoice_for_the_bl() -> None:
+    # Protects: ODeX's notice starts collecting the invoice. Fails if its table, split across lines, isn't read.
+    assert facts("#DOHACK Fw: ODeX: Invoices Received for SHZ1234567", ODEX_RELEASED) == [
+        ("invoice", "SHZ1234567", "INIUPC00000001")
     ]
 
 

@@ -5,8 +5,8 @@ click, or a few seconds with autoplay on.
 
 Each answer moves one waiting request on and writes the documents CMA CGM would
 send. What would arrive by email goes in the outbox on the control panel, written
-like the real mail (the RTGS confirmation, the security slip); where no real mail
-has been seen (the invoice released, the eDO issued) the mail carries a code line.
+like the real mail (ODeX's invoices received, the RTGS confirmation, the security
+slip); where no real mail has been seen (the eDO issued) the mail carries a code line.
 local_portals/mail.py hands the outbox to the app when the demo asks for it.
 """
 from __future__ import annotations
@@ -57,6 +57,7 @@ def _waiting(data: dict[str, Any], kind: str, item_id: str) -> dict[str, Any]:
 
 
 DO_MAILBOX = "the DO mailbox"
+ODEX_ACCOUNT = "the ODeX account's email"
 
 
 def _email(
@@ -95,11 +96,20 @@ def verify_invoice(store: Store, item_id: str) -> str:
             status="Released", invoice_no=invoice_no, amount=total, invoice_file=file_id,
             invoice_date=date.today().isoformat(), answered_at=now(),
         )
+        # As ODeX's notice reads (app/email_infer.py knows it). The bill-to party is the
+        # consignee manifested on the MBL.
         _email(
-            data, DO_MAILBOX, f"DO invoice {invoice_no} released for BL {request['bl_no']}",
-            f"The DO invoice {invoice_no} for BL {request['bl_no']}, Rs. {documents.money(total)}, is released on "
-            f"ODeX: ePayment, EDO DETAILS, BL {request['bl_no']}.",
-            [], codes=[("invoice", request["bl_no"], invoice_no)],
+            data, ODEX_ACCOUNT, f"ODeX: Invoices Received for {request['bl_no']}",
+            "Dear Sir/Madam,\n\n"
+            f"Invoices released for {request['bl_no']},\n"
+            f"Type Of Delivery:   {request.get('delivery_type', '')}\n"
+            "IGM No.:\nIGM Date:\nCFS Name:\n\n"
+            "Invoice No.\tInvoice Type\tTotal Invoice Amt.\tBill to Party\n"
+            f"{invoice_no}\tNON FREIGHT\t{total:.2f}\tHEXALOG GLOBAL SUPPLY CHAINS PVT LTD\n\n"
+            "Note:This is a system generated e-mail. Please do NOT reply to it.\n\n"
+            "Above notification on behalf of CMA CGM AGENCIES INDIA PRIVATE LIMITED\n\n"
+            "Regards,\nODeX Support Team\n",
+            [],
         )
     return f"Released {request['ref']}: invoice {invoice_no} for Rs. {documents.money(total)}, on ODeX for BL {request['bl_no']}."
 

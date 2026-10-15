@@ -66,10 +66,15 @@ def log_in(client: TestClient, user: str = "hexalog-demo", password: str = "loca
     return page
 
 
-@pytest.fixture()
-def web(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True)
+def demo_login(monkeypatch):
+    """The local ODeX takes its published demo login here, whatever backend/.env says."""
     monkeypatch.delenv("LOCAL_ODEX_USERNAME", raising=False)
     monkeypatch.delenv("LOCAL_ODEX_PASSWORD", raising=False)
+
+
+@pytest.fixture()
+def web(tmp_path):
     with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=tmp_path / "no-screens")) as client:
         log_in(client)
         yield client
@@ -204,8 +209,10 @@ def test_the_odex_guide_from_invoice_request_to_invoice(web):
     assert "Rs. 54,720.68" in said  # one container, as on the sample DO receipt
     released = items(web, "invoice_requests")[0]
     assert released["status"] == "Released"
-    # The liner's mail says so. No real one has been seen, so it carries the code line the app reads.
-    assert items(web, "outbox")[0]["codes"] == [["invoice", MBL, released["invoice_no"]]]
+    # ODeX's notice says so, as the real one reads.
+    notice = items(web, "outbox")[0]
+    assert notice["subject"] == f"ODeX: Invoices Received for {MBL}" and notice["codes"] == []
+    assert f"Invoices released for {MBL}," in notice["body"] and released["invoice_no"] in notice["body"]
     with pytest.raises(cma.NotWaiting):
         cma.verify_invoice(web.app.state.store, request["id"])
 

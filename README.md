@@ -93,6 +93,8 @@ There is no general classifier. A mail is read only if it has the short marker `
 | CMA CGM RTGS/NEFT confirmation with an invoice | UTR, invoice number, BL number | `payment_utr` and `do_invoice_no` are filled; the receipt goes to the DO Receipt slot |
 | The same with no invoice (the 40,000 deposit) | UTR, BL number | `deposit_utr` is filled; the receipt goes to the Security Receipt slot |
 | ODeX security slip | The house bill number | The slip goes to the Security-cum-ODEX Receipt slot of the job that has that house bill |
+| ODeX "Invoices Received for <B/L>" (the liner released the invoices) | The B/L and each invoice number | `do_invoice_no` is filled, and `customs/do.invoice.verified` sends the agent to collect the invoice from ODeX |
+| Finance's reply to the app's payment mail | "Invoice UTR:" and "Deposit UTR:" | `payment_utr`, `deposit_utr` and, when empty, the date of transfer are filled |
 | Draft MBL and HBL mail | The MBL number | Opens the job if there is none. Each attachment goes to its slot by file name, or by what is in it. Read from the bills: HBL numbers, containers, vessel, voyage, and the consignees |
 
 Mail with the marker that no recognizer knows is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers):
