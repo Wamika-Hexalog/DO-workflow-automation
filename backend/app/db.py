@@ -18,6 +18,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -110,6 +113,15 @@ class Task(Base):
     completed_by: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    # When the status last changed: how long the step has waited for ops (the Process
+    # page's clock). updated_at moves with every note, so it can't tell.
+    status_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+@event.listens_for(Task.status, "set")
+def _stamp_status(task: Task, value: str, old: Any, _initiator: Any) -> None:
+    if value != old:
+        task.status_since = utcnow()
 
 
 class IdempotencyKey(Base):
@@ -161,4 +173,18 @@ def make_sessionmaker(database_url: str) -> sessionmaker:
         connect_args["check_same_thread"] = False
     engine = create_engine(database_url, connect_args=connect_args)
     Base.metadata.create_all(engine)
+    _add_new_columns(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+# Columns added after a database was first made: create_all makes missing tables, not columns.
+_NEW_COLUMNS = {"tasks": {"status_since": "DATETIME"}}
+
+
+def _add_new_columns(engine: Any) -> None:
+    for table, columns in _NEW_COLUMNS.items():
+        have = {column["name"] for column in inspect(engine).get_columns(table)}
+        with engine.begin() as connection:
+            for name, sql_type in columns.items():
+                if name not in have:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))

@@ -155,6 +155,26 @@ def test_the_payment_mail_goes_to_finance_with_the_invoice_and_the_cc(tmp_path, 
         assert len(list((storage / "outbox").glob("*/message.json"))) == 1
 
 
+def test_a_payment_the_job_is_already_past_never_waits_for_ops(tmp_path, private_dir):
+    # Protects: a job moved past a payment by hand, or entered with it done, isn't asked to approve that payment
+    # again. Fails if the payment check puts a step the job's stage is already past in front of ops.
+    client = RecordingInngest()
+    app = create_app(settings_for(tmp_path, private_dir, automate_portals=True), client)
+    with TestClient(app) as api:
+        engine = Engine(app, client)
+        assert api.patch("/api/profile", json={"values": {"payer_account_no": "123456789012"}}).status_code == 200
+        s = new_shipment(api)
+        assert api.post(f"/api/shipments/{s['id']}/move", json={"to": "invoice_paid"}).status_code == 200
+        paid = dict(do_invoice_no="INV-DEMO-00001", do_invoice_amount="54720.68", payment_utr="DEMOUTR0001INV",
+                    deposit_utr="DEMOUTR0001DEP", payment_date="2026-10-01")
+        assert api.patch(f"/api/shipments/{s['id']}/values", json={"values": paid}).status_code == 200
+        engine.run()
+        s = api.get(f"/api/shipments/{s['id']}").json()
+    payment, deposit = task(s, "cma_rtgs_payment"), task(s, "cma_rtgs_deposit")
+    assert (payment["status"], payment["note"]) == ("completed", "Done outside the app: the job is already at Invoice paid.")
+    assert deposit["status"] == "awaiting_approval"  # the job isn't past the deposit yet
+
+
 def test_building_opens_the_do_request_for_ops(api, engine):
     s = new_shipment(api)
     refused = api.post(f"/api/shipments/{s['id']}/tasks/odex_do_request/complete", json={})

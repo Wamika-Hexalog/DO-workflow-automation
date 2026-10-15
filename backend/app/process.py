@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import portal_params, service, tasks
-from .folder import STAGE_IDS, Slot, split_list
+from .folder import STAGE_IDS, STAGES, Slot, split_list
 from .runtime import Runtime
 
 AGENT = "browser agent"
@@ -30,6 +30,13 @@ TASK_OF = {
 FOR_OPS = (portal_params.RTGS_SHIPMENT, portal_params.RTGS_DEPOSIT, portal_params.DEPOSIT)
 
 INVOICE_PAID, DEPOSIT_APPROVED, EDO_RECEIVED = "invoice_paid", "deposit_approved", "edo_received"
+# The stage at which each payment step is behind the job: a job moved there by hand, or
+# entered with its payments done, never asks ops to approve it again.
+DONE_AT = {
+    portal_params.RTGS_SHIPMENT: INVOICE_PAID,
+    portal_params.RTGS_DEPOSIT: DEPOSIT_APPROVED,
+    portal_params.DEPOSIT: DEPOSIT_APPROVED,
+}
 
 
 def _forward(session: Any, shipment: Any, stage: str) -> bool:
@@ -151,6 +158,11 @@ def refresh_payments_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
             task_key = TASK_OF[step_key]
             task = tasks.get(session, shipment.id, task_key)
             if task is not None and task.status in (tasks.COMPLETED, tasks.FAILED):
+                continue
+            stage = DONE_AT[step_key]
+            if STAGE_IDS.index(shipment.status) >= STAGE_IDS.index(stage):
+                note = f"Done outside the app: the job is already at {dict(STAGES)[stage]}."
+                tasks.done(session, shipment.id, task_key, note, {}, by="outside the app")
                 continue
             step = portal_params.STEPS[step_key]
             try:

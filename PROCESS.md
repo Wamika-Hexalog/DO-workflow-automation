@@ -241,7 +241,7 @@ The agent opens Documents → DO Request on ODeX, finds each HBL and downloads i
 
 ## Where to look
 
-- **The job:** Process shows the tasks above, with Approve and Try again. History shows each mail, each agent run and each change of stage.
+- **The job:** Process shows every step above, 1 to 12, in order. Each step says where it stands: done, done outside the app (the job was already past it before the app ran it), needs you, waiting on Finance or CMA CGM with how long it has waited, or not started. Approve and Try again are on the step. History shows each mail, each agent run and each change of stage.
 - **The workflows:** the Inngest dashboard, http://localhost:8288.
 - **The local portals:** the control panel, http://127.0.0.1:8100/control, plays CMA CGM and Finance. With autoplay on, it answers each request after a few seconds.
 - **The data:** the database is `backend/data/do_folder.db`. A job's files are in `backend/data/files/<job id>/`. What the agent downloads is in its `portal/` folder.

@@ -798,20 +798,26 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
-/* Process: the steps around the DO folder, in order */
+/* Process: every step of the DO process, in order */
 .process { display: grid; gap: 10px; margin: 18px 0 0; padding: 0; list-style: none; }
 .step { display: grid; gap: 6px; padding: 14px 16px; border: var(--hair) solid var(--rule); border-radius: var(--radius-sm); background: var(--sheet); }
 /* The palette's roles: Signal Yellow marks what needs ops, Alert only a failure. */
-.step.awaiting_approval { border-color: var(--marker); box-shadow: var(--shadow-lift); }
+.step.needs_you { border-color: var(--marker); box-shadow: var(--shadow-lift); }
 .step.failed { border-color: var(--alert); }
+.step.not_started { background: transparent; }
+.step.not_started .step-title { color: var(--ink-3); font-weight: 500; }
 .step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .step-title { font-weight: 600; }
+.step-no { display: inline-block; min-width: 2.4em; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .step-note { margin: 0; color: var(--ink-2); }
+.step-clock { margin: 0; font-size: 13px; color: var(--label); font-variant-numeric: tabular-nums; }
 .step .btn { justify-self: start; }
-.step-status.completed { background: var(--selected); color: var(--label); }
-.step-status.awaiting_approval { background: var(--marker); color: var(--marker-ink); }
+.step-status.done { background: var(--selected); color: var(--label); }
+.step-status.needs_you { background: var(--marker); color: var(--marker-ink); }
+.step-status.waiting { background: var(--marker-soft); color: var(--marker-ink); }
 .step-status.failed { background: var(--alert-soft); color: var(--alert); }
 .step-status.pending { background: var(--tint); color: var(--ink-2); }
+.step-status.not_started { background: transparent; color: var(--ink-3); border: var(--hair) solid var(--rule); }
 
 /* The DO folder download: the Hexanaut sails off with it. */
 .celebrate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(38, 18, 77, 0.38); backdrop-filter: blur(3px); animation: fade-in 180ms ease-out; }

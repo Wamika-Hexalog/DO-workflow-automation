@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import assemble, checks, containers, letters, pdfs, service, tasks
+from . import assemble, checks, containers, letters, pdfs, process_steps, service, tasks
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
 from .runtime import Runtime
@@ -37,6 +37,7 @@ from .schemas import (
     FlagOut,
     FolderOut,
     MoveIn,
+    ProcessStepOut,
     ProfileOut,
     RunOut,
     ShipmentIn,
@@ -199,6 +200,7 @@ def shipment_out(
             stale=service.stale(shipment, profile),
         )
     review = next((t for t in shipment_tasks if t.task_key == tasks.FOLDER_REVIEW), None)
+    attached = {state.slot.id for state in states if state.document is not None}
     return ShipmentOut(
         id=shipment.id,
         job_no=shipment.job_no,
@@ -214,6 +216,7 @@ def shipment_out(
         folder=folder_out,
         building=service.is_building(review, shipment),
         tasks=[task_out(t) for t in shipment_tasks],
+        process=[ProcessStepOut(**row) for row in process_steps.steps_for(shipment, shipment_tasks, attached)],
         requested_on=shipment.requested_on,
         edo_received_on=shipment.edo_received_on,
         updated_at=service.aware(shipment.updated_at),

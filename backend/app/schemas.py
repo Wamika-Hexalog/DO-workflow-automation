@@ -83,6 +83,21 @@ class TaskOut(BaseModel):
     result: dict[str, Any]
 
 
+class ProcessStepOut(BaseModel):
+    """One step of the DO process for the job (app/process_steps.py)."""
+
+    number: str
+    title: str
+    actor: Literal["app", "agent", "ops", "finance", "cma"]
+    task_key: str | None
+    state: Literal["done", "needs_you", "failed", "pending", "waiting", "not_started"]
+    note: str
+    at: datetime | None  # when it was done
+    by: str | None
+    waiting_on: Literal["ops", "finance", "cma"] | None
+    since: datetime | None  # when the wait began: the clock
+
+
 class ShipmentOut(BaseModel):
     id: str
     job_no: str
@@ -98,6 +113,7 @@ class ShipmentOut(BaseModel):
     folder: FolderOut | None
     building: bool  # ops confirmed the folder and the build is under way
     tasks: list[TaskOut]
+    process: list[ProcessStepOut]
     requested_on: date | None
     edo_received_on: date | None
     updated_at: datetime
