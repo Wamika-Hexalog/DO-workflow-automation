@@ -74,6 +74,8 @@ The process runs as small Inngest functions, each triggered by an event, in pyth
 | `do-request-submit` | `customs/task.completed` for the DO request | Raises the DO request on ODeX once per house bill, uploading the folder PDF, then moves the job to DO requested and sends `customs/do.request.submitted` |
 | `do-edo-collect` | `customs/do.edo.received` (CMA CGM's mail) | Collects the eDO from ODeX for each house bill; once all are in, moves the job to eDO received |
 
+[`PROCESS.md`](PROCESS.md) numbers the steps, from the pre-alert to the eDO. For each step, it gives the mail that starts it, what the app does and what it keeps.
+
 With `DO_AUTOMATE_PORTALS` on (`make demo-local` turns it on), the steps before and after the folder run from the mail, as `docs/design/LLD.md` §4.2 lays out. The agent runs a step by itself when its mail arrives. Ops approve the three that confirm or move money (the two RTGS confirmations and the ODeX deposit) and the DO request, under Process on the job. A step that fails stops with the error on its task. Ops can start it again from there, after checking the portal for a step that submits. Each submit takes an insert-once claim, so a replay never submits twice. With it off, nothing new runs, and ops do these steps by hand as before.
 
 Ops act through tasks: building the folder completes the review, approving a payment or the DO request starts its run. Each request takes an insert-once claim per house bill, so a replayed or repeated run never raises it twice. A browser run that fails isn't retried blindly: the error goes on the task, with the house bills to check on ODeX before approving again.
