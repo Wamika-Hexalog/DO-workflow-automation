@@ -80,7 +80,7 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
           <input
             ref={input}
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.webp,application/pdf,image/*"
+            accept=".pdf,.rtf,.jpg,.jpeg,.png,.tif,.tiff,.webp,application/pdf,application/rtf,text/rtf,image/*"
             hidden
             onChange={(e) => {
               attach(e.target.files[0]);
