@@ -18,7 +18,7 @@ from typing import Any
 
 import inngest
 
-from .. import email_ingest
+from .. import email_ai, email_ingest
 from ..config import Settings
 from ..connectors.file_mailbox import FileMailbox
 from ..connectors.outlook import OutlookClient
@@ -72,15 +72,36 @@ def create_email_inbound_function(rt: Runtime) -> inngest.Function:
         msg = await ctx.step.run("fetch-message", fetch)
         body = (msg.get("body") or {}).get("content") or msg.get("bodyPreview") or ""
         subject = msg.get("subject") or ""
+
+        async def download() -> list[dict[str, Any]]:
+            target = Path(tempfile.mkdtemp(prefix="do-inbox-"))
+            return await make_outlook(rt.settings, message_id).download_attachments(message_id, target)
+
+        files: list[dict[str, Any]] | None = None  # downloaded once: for the model, or for the first document code
         codes = parse_injected_codes(body, prefix=rt.settings.inject_code_prefix, subject=subject)
-        if not codes and marker_present(rt.settings.mail_marker, subject, body):
+        marked = marker_present(rt.settings.mail_marker, subject, body)
+        if not codes and marked:
             codes = infer_codes(subject, body, hbl_pattern=rt.settings.hbl_pattern)
+        ai_note = ""
+        if not codes and marked and rt.settings.google_api_key:
+            # No rule knows this wording: the model reads it (app/email_ai.py).
+            files = await ctx.step.run("download-attachments", download) if msg.get("hasAttachments") else []
+            attachments = files
+
+            async def read() -> dict[str, Any]:
+                return await email_ai.read(rt.settings, subject, body, attachments)
+
+            reading = await ctx.step.run("read-mail-with-ai", read)
+            codes = [InjectedCode(**c) for c in reading["codes"]]
+            ai_note = reading["note"]
+            if not codes:
+                return {"routed": False, "reason": "no rule knew the mail, and the model found nothing to act on", "ai": reading}
         if not codes:
             return {"routed": False, "reason": "no injected code"}
 
-        files: list[dict[str, Any]] | None = None  # downloaded once, for the first document code
         next_file = 0  # a code that names a slot takes the next attachment
         results: list[dict[str, Any]] = []
+        noted: set[str] = set()  # the jobs whose history says the model read this mail
         for i, code in enumerate(codes):
             shipment_id = await ctx.step.run(f"find-shipment-{i}", job(email_ingest.find_shipment_job, rt, code.mbl_no))
             if shipment_id is None and i == 0 and code.stage == "document" and not code.arg:
@@ -89,17 +110,16 @@ def create_email_inbound_function(rt: Runtime) -> inngest.Function:
             if shipment_id is None:
                 results.append({"stage": code.stage, "routed": False, "reason": f"no shipment with MBL {code.mbl_no}"})
                 continue
+            if ai_note and shipment_id not in noted:
+                noted.add(shipment_id)
+                note = f"{ai_note} (from {_sender(msg)})"
+                await ctx.step.run(f"note-ai-{i}", job(email_ingest.record_job, rt, shipment_id, "ai", note))
             if code.stage != "document":
                 await _record_and_emit(ctx, rt, msg, message_id, code, shipment_id, i)
                 results.append({"stage": code.stage, "routed": True})
                 continue
 
             if files is None:
-
-                async def download() -> list[dict[str, Any]]:
-                    target = Path(tempfile.mkdtemp(prefix="do-inbox-"))
-                    return await make_outlook(rt.settings, message_id).download_attachments(message_id, target)
-
                 files = await ctx.step.run("download-attachments", download)
             if code.arg:  # a slot named in the code: the next attachment goes there
                 if next_file >= len(files):
@@ -130,7 +150,7 @@ def create_email_inbound_function(rt: Runtime) -> inngest.Function:
             if events:
                 await ctx.step.send_event(f"emit-do-events-{i}", events)
             results.append({"stage": "document", "routed": True, "attached": len(attached), "filled": filled})
-        return {"routed": any(r["routed"] for r in results), "results": results}
+        return {"routed": any(r["routed"] for r in results), "read_by_ai": bool(ai_note), "results": results}
 
     return inbound
 

@@ -88,6 +88,11 @@ class Settings:
     mail_marker: str = "#DOHACK"
     # House bill numbers to look for in an HBL file. Add the format of each forwarder you receive from.
     hbl_pattern: str = r"(?:WOLSZSE\d{8}[A-Z]|MSEC\d{12})"
+    # The Gemini models that read a marked mail no rule knows (app/email_ai.py), in the
+    # order to try them: when one is busy or retired, the next one reads. Without a key,
+    # such a mail is left unread.
+    google_api_key: str = ""
+    mail_ai_model: str = "gemini-3.5-flash,gemini-3.1-flash-lite,gemini-3.6-flash,gemini-3.8-flash"
     # Logins for the public tunnel, "user:password,user2:password2". Local requests need none.
     basic_auth_users: str = ""
 
@@ -141,5 +146,7 @@ class Settings:
             inject_code_prefix=os.getenv("INJECT_CODE_PREFIX", "DOHACK"),
             mail_marker=os.getenv("MAIL_MARKER", cls.mail_marker),
             hbl_pattern=os.getenv("HBL_PATTERN", cls.hbl_pattern),
+            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
+            mail_ai_model=os.getenv("DO_MAIL_AI_MODEL", cls.mail_ai_model),
             basic_auth_users=os.getenv("BASIC_AUTH_USERS", ""),
         )

@@ -2,7 +2,7 @@
 
 These are the steps of one shipment's delivery order process, from the pre-alert to the eDO, as the app runs them. Use the numbers to name a step: "step 6" is Finance's mail with the UTRs. Steps 1 to 7 are the team's own list. Steps 8 to 12 follow `DO PROCESS FLOW E2E.xlsx`.
 
-The steps run only when `DO_AUTOMATE_PORTALS` is on. `make demo-local` turns it on. The app reads a mail only if its subject or body has `#DOHACK`. The mail examples below use demo values.
+The steps run only when `DO_AUTOMATE_PORTALS` is on. `make demo-local` turns it on. The app reads a mail only if its subject or body has `#DOHACK`. A marked mail in a wording no rule knows is read by Gemini, and the job's History says so (see the README's Email section). The mail examples below use demo values.
 
 | # | Step | Starts with | Who acts | Task under Process |
 |---|---|---|---|---|
@@ -129,6 +129,8 @@ Invoice UTR: UTRDEMO000001
 Deposit UTR: UTRDEMO000002
 ```
 
+If Finance writes in its own words instead ("paid the invoice with UTR …, the deposit with UTR …"), Gemini reads the reply.
+
 The app finds the job by the MBL in the subject. The empty lines in the quoted mail give nothing. The app fills:
 
 - `payment_utr` (UTR for the shipment payment).
@@ -221,7 +223,7 @@ The agent follows the team's guide "DO final steps corrected": Documents → DO 
 
 ## 12. Collect the eDO
 
-**Starts with:** CMA CGM's mail that the eDO is issued. We have not seen a real one yet, so until we have a sample this mail needs a code line with the MBL or one of its HBLs:
+**Starts with:** CMA CGM's mail that the eDO is issued, with `#DOHACK`. We have not seen a real one yet, so no rule knows it: Gemini reads it. A code line with the MBL or one of its HBLs also works, without the model:
 
 ```
 DOHACK:edo:ABC1234567
@@ -234,7 +236,7 @@ The agent opens Documents → DO Request on ODeX, finds each HBL and downloads i
 ## Not built yet
 
 - The refund: Counter Process → Deposit and Refund → Request Refund (the sheet's "Counter Process-Refund request").
-- The real eDO mail (step 12). Finance's real reply (step 6) also needs a sample: today it must carry the two UTR lines.
+- Rules for the real eDO mail (step 12) and Finance's real reply (step 6). Until we have samples, Gemini reads them.
 - The SOPs for the real ODeX and the real RTGS page. The agent opens only the local portals (`DO_BROWSER_ALLOWED_HOSTS`).
 
 ## Where to look

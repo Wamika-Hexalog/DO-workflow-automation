@@ -34,6 +34,7 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "httpx2==2.13.1",
+    "respx>=0.23.1",
 ]
 
 # The backend is an app, not a library: `app` is imported from this folder.

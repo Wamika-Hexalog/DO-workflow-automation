@@ -99,7 +99,7 @@ There is no general classifier. A mail is read only if it has the short marker `
 | Finance's reply to the app's payment mail | "Invoice UTR:" and "Deposit UTR:" | `payment_utr`, `deposit_utr` and, when empty, the date of transfer are filled |
 | Draft MBL and HBL mail | The MBL number | Opens the job if there is none. Each attachment goes to its slot by file name, or by what is in it. Read from the bills: HBL numbers, containers, vessel, voyage, and the consignees |
 
-Mail with the marker that no recognizer knows is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers):
+Mail with the marker that no recognizer knows goes to Gemini when `GOOGLE_API_KEY` is set (`backend/app/email_ai.py`): Finance's reply in its own words, an eDO mail, a new forwarder's pre-alert. The model only says which of those kinds of mail it is and copies the identifiers it states, from the subject, the body and the first page of each attachment. The app turns that into the same facts the recognizers give, and drops any identifier the mail doesn't contain, so a guess never reaches a job. The job's History says the model read the mail, and what it found. `DO_MAIL_AI_MODEL` lists the Gemini models to try, in order: when one is busy, the next one reads. Without the key, such a mail is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers and the model):
 
 ```
 DOHACK:<stage>:<MBL>[:<arg>]

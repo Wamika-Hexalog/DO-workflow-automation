@@ -39,7 +39,7 @@ reformats files you did not change.
 | The documents, their order and stamps, and the fields | `backend/do_folder.yaml` |
 | Inngest functions and event names | `backend/app/workflows/` (`events.py` holds the names) |
 | The Outlook connector (copied from python-brain) | `backend/app/connectors/` |
-| Mail: the code parser, the content recognizers, the database jobs | `backend/app/email_code.py`, `email_infer.py`, `email_ingest.py` |
+| Mail: the code parser, the content recognizers, the AI reader, the database jobs | `backend/app/email_code.py`, `email_infer.py`, `email_ai.py`, `email_ingest.py` |
 | The Graph webhook | `backend/app/webhooks.py` |
 | The process steps by number (1 is the pre-alert, 12 the eDO), as the team names them | `PROCESS.md` |
 | The portal steps around the DO request: what each needs and leaves, their tasks | `backend/app/process.py`, `backend/app/workflows/invoice.py`, `payment.py`, `edo.py` |
@@ -90,6 +90,9 @@ reformats files you did not change.
   with no marker is ignored.
 - Read facts from the mail itself in `email_infer.py`. A mail the recognizers get wrong can carry
   an explicit `DOHACK:<stage>:<MBL>[:<arg>]` code, which wins.
+- A marked mail no recognizer knows goes to Gemini (`email_ai.py`). The model only names the
+  kind of mail and copies identifiers. Drop any identifier the mail doesn't contain, and never let
+  the model's answer do more than a recognizer could.
 - Fill a shipment field from a document only if it is empty or still the folder's starting value.
   Never overwrite a value a person typed.
 - The draft MBL and HBL mail opens the job when there is none. One job per MBL.
