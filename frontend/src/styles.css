@@ -788,3 +788,18 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Process: the steps around the DO folder, in order */
+.process { display: grid; gap: 10px; margin: 18px 0 0; padding: 0; list-style: none; }
+.step { display: grid; gap: 6px; padding: 14px 16px; border: var(--hair) solid var(--rule); border-radius: var(--radius-sm); background: var(--sheet); }
+/* The palette's roles: Signal Yellow marks what needs ops, Alert only a failure. */
+.step.awaiting_approval { border-color: var(--marker); box-shadow: var(--shadow-lift); }
+.step.failed { border-color: var(--alert); }
+.step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.step-title { font-weight: 600; }
+.step-note { margin: 0; color: var(--ink-2); }
+.step .btn { justify-self: start; }
+.step-status.completed { background: var(--selected); color: var(--label); }
+.step-status.awaiting_approval { background: var(--marker); color: var(--marker-ink); }
+.step-status.failed { background: var(--alert-soft); color: var(--alert); }
+.step-status.pending { background: var(--tint); color: var(--ink-2); }

@@ -66,6 +66,10 @@ class Settings:
     cma_rtgs_url: str = "http://127.0.0.1:8100/cma-rtgs"
     # The local portals' control panel, where the shipment page reads CMA CGM's answers.
     local_portals_url: str = "http://127.0.0.1:8100"
+    # Run the steps before and after the DO request with the browser agent as their mail
+    # arrives: request and collect the invoice, mail it to Finance, confirm the payments,
+    # raise the deposit, collect the eDO. Off: ops do them by hand, as before.
+    automate_portals: bool = False
 
     # Outlook / Microsoft Graph, python-brain's variable names. The hackathon mock flow reads
     # only mail whose body carries "<inject_code_prefix>:<stage>:<MBL>[:<arg>]".
@@ -126,6 +130,7 @@ class Settings:
             odex_url=os.getenv("DO_ODEX_URL", cls.odex_url).rstrip("/"),
             cma_rtgs_url=os.getenv("DO_CMA_RTGS_URL", cls.cma_rtgs_url).rstrip("/"),
             local_portals_url=os.getenv("DO_LOCAL_PORTALS_URL", cls.local_portals_url).rstrip("/"),
+            automate_portals=_flag("DO_AUTOMATE_PORTALS", False),
             outlook_client_id=os.getenv("OUTLOOK_CLIENT_ID", ""),
             outlook_client_secret=os.getenv("OUTLOOK_CLIENT_SECRET", ""),
             outlook_tenant_id=os.getenv("OUTLOOK_TENANT_ID", ""),

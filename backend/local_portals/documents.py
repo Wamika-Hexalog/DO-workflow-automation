@@ -178,8 +178,11 @@ def receipt_pdf(
     story = [
         _p(_e(kind.upper()), TITLE),
         Spacer(0, 8 * mm),
+        # As CMA CGM prints it: a line "RECEIPT", then the number (app/email_ingest.py reads it).
+        _p("<b>RECEIPT</b>"),
+        _p(_e(receipt_no)),
+        Spacer(0, 3 * mm),
         _pairs([
-            ("Receipt no.", receipt_no),
             ("Date", day(on)),
             ("Received from", customer),
             ("Collected by", "RTGS/NEFT Transfer"),

@@ -1,20 +1,21 @@
-# Check a security deposit on ODeX (Counter Process → Deposit and Refund) and,
-# once CMA CGM has approved it, download its Security Deposit Acknowledgement Slip:
-# the DO folder's Security-cum-ODEX Receipt. Runs once per house bill, and is safe
-# to run again: it only reads.
+# Check a security deposit on ODeX (Counter Process → Security Deposit & Refund, the
+# request searched by its BL No.) and, once CMA CGM has approved it, download its
+# Security Deposit Acknowledgement Slip: the DO folder's Security-cum-ODEX Receipt. Runs
+# once per house bill, and is safe to run again: it only reads.
 #
 # Written for the local ODeX (make portals). The real page's selectors aren't known
 # yet; sops/local/README.md says what's needed to point it at the real one.
 #
 # Params, built by app/portal_params.py (step odex_deposit_status):
 #   odex_url        where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location   job: ODeX location (the MBL's place of delivery; ICD Tughlakabad is NCR)
 #   hbl_no          the house B/L the deposit is for
 #   slip_save_path  where to save the slip, with the job's files
 #
 # Reads back: deposit_ref, deposit_status, and downloaded_file_path once the slip is saved
 metadata:
   name: "Local ODeX - Deposit status and slip"
-  version: "0.1"
+  version: "0.2"
 
 credentials:
   username_env: "LOCAL_ODEX_USERNAME"
@@ -106,20 +107,66 @@ steps:
     condition: params.choose_company
     selector: "#confirmSignIn"
 
+
   - action: wait_for_selector
     description: Wait for the services page
     method: playwright
-    selector: "#counter-go"
+    selector: "#counter-location"
+
+  - action: execute_script
+    description: Choose Counter Process's location
+    method: playwright
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#counter-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
   - action: click
-    description: Open Counter Process (Deposit and Refund)
+    description: Open Counter Process
     method: playwright
     selector: "#counter-go"
 
   - action: wait_for_selector
-    description: Wait for the list of deposits
+    description: Wait for Counter Process
     method: playwright
-    selector: "#deposits"
+    selector: "#menu-security-deposit"
+
+  - action: click
+    description: Open the Security Deposit menu
+    method: playwright
+    selector: "#menu-security-deposit"
+
+  - action: click
+    description: Go to Security Deposit & Refund
+    method: playwright
+    selector: "#menu-deposit-refund"
+
+  - action: wait_for_selector
+    description: Wait for Search Deposit/Refund Request
+    method: playwright
+    selector: "#search-bl"
+
+  - action: fill
+    description: Search for the BL No.
+    method: playwright
+    selector: "#search-bl"
+    value_from: params.hbl_no
+
+  - action: click
+    description: Search
+    method: playwright
+    selector: "#search-go"
+
+  - action: wait_for_selector
+    description: Wait for the BL's requests
+    method: playwright
+    selector: "#deposit-list[data-search='{params.hbl_no}']"
 
   # The list is newest first, so the first row for the B/L is its latest deposit.
   # Marks the slip link for the download step, which takes a fixed selector.
@@ -131,7 +178,7 @@ steps:
       hbl_no: params.hbl_no
     script: |
       ({ hbl_no }) => {
-        const row = [...document.querySelectorAll('#deposits tbody tr[data-bl]')].find((r) => r.dataset.bl === hbl_no);
+        const row = [...document.querySelectorAll('#deposit-rows [data-bl]')].find((r) => r.dataset.bl === hbl_no);
         if (!row) throw new Error(`ODeX has no deposit for B/L ${hbl_no}`);
         const approved = row.dataset.status === 'Deposit Approved';
         if (approved) row.querySelector('a.download-slip').id = 'slip-to-download';

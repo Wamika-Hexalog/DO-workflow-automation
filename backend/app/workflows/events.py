@@ -25,6 +25,14 @@ class EventNames:
     INVOICE_VERIFIED = "customs/do.invoice.verified"
     UTR_RECEIVED = "customs/do.payment.utr-received"
     EDO_RECEIVED = "customs/do.edo.received"
+    # The portal steps around the DO request (app/workflows/invoice.py, payment.py, edo.py).
+    INVOICE_REQUESTED = "customs/do.invoice.requested"
+    INVOICE_COLLECTED = "customs/do.invoice.collected"
+    PAYMENT_REQUESTED = "customs/do.payment.requested"  # the invoice went to Finance
+    RTGS_SUBMITTED = "customs/do.rtgs.submitted"  # Data: shipment_id, step
+    DEPOSIT_SUBMITTED = "customs/do.deposit.submitted"
+    DEPOSIT_APPROVED = "customs/do.deposit.approved"  # ODeX's slip is in for every house bill
+    CASE_COMPLETED = "customs/do.case.completed"  # the eDO is in for every house bill
 
 
 # Graph retries a notification it did not get a 2xx for. Inngest dedups the inbound event on

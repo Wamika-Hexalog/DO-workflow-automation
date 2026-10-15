@@ -447,6 +447,7 @@ class OutlookClient:
         body_html: str,
         from_address: str | None = None,
         attachment_paths: list[str] | None = None,
+        cc: list[str] | None = None,  # Local change: the DO app copies every mail it sends.
     ) -> dict[str, Any]:
         """Send an email via Microsoft Graph and return message metadata.
 
@@ -475,6 +476,9 @@ class OutlookClient:
             "body": {"contentType": "HTML", "content": body_html},
             "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
         }
+        # Local change: Cc, for the DO app's mail_cc.
+        if cc:
+            message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc]
 
         # Encode attachments if provided
         if attachment_paths:

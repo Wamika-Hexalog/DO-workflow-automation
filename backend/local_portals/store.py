@@ -26,6 +26,7 @@ def _empty() -> dict[str, Any]:
         "deposits": [],
         "do_requests": [],
         "outbox": [],  # the emails CMA CGM would send
+        "finance": {},  # the app's payment mails Finance has answered, by message id
         "autoplay": {"on": False, "delay_seconds": 8},
     }
 

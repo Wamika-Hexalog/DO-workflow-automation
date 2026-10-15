@@ -22,7 +22,7 @@ make test          # backend tests (the workflows run in process; no dev server 
 make test-browser  # the browser agent in a real Chromium: a mock ODeX page, and the whole process on the local portals
 make try-agent     # the browser agent logs in and uploads a dummy file on a public practice site; SHOW=1 to watch
 make portals       # local versions of ODeX and CMA CGM's RTGS page, on :8100 (see below)
-make demo-local    # make demo plus the local portals: approving a DO request raises it on the local ODeX, visibly
+make demo-local    # make demo plus the local portals: the whole process runs from the mail, in a visible browser
 ```
 
 The Inngest dev server's dashboard, at http://localhost:8288, shows every workflow run and its steps. Secrets (the browser agent's `GOOGLE_API_KEY`, the ODeX login) go in `backend/.env`; see `backend/.env.example`.
@@ -63,11 +63,22 @@ The process runs as small Inngest functions, each triggered by an event, in pyth
 
 | Function | Triggered by | What it does |
 |---|---|---|
+| `do-invoice-request` | `customs/do.document.received` for the MBL | Requests the DO invoice on ODeX (`DO_AUTOMATE_PORTALS`) |
+| `do-invoice-collect` | `customs/do.invoice.verified` (the liner's mail) | Collects the invoice from ODeX: its number, amount and PDF go on the job |
+| `do-finance-mail` | `customs/do.invoice.collected` | Mails the invoice to Finance (Outlook, or the outbox on disk without it), asking for the two UTRs, with the fixed details' `mail_cc` in Cc |
+| `do-payments-refresh` | `customs/do.shipment.updated`, `customs/do.document.received`, the UTR and invoice events | Puts each payment step in front of ops once the job has what it needs; moves the job to Deposit approved once ODeX's slip is in for every house bill |
+| `do-rtgs-payment`, `do-rtgs-deposit` | `customs/task.completed` for each payment | Confirm the shipment payment and the security deposit on CMA CGM's RTGS page; the first moves the job to Invoice paid |
+| `do-deposit-request` | `customs/task.completed` for the deposit | Raises the security deposit on ODeX for each house bill |
 | `do-folder-verify` | `customs/do.document.received`, `customs/do.shipment.updated` (once edits settle) | Keeps the "Review and build" task in line with the documents; sends `customs/do.folder.ready` when everything is in place |
 | `do-folder-build` | `customs/task.completed` for the folder review | Builds the PDF, moves the job to DO folder ready, opens the ODeX DO request task, sends `customs/do.docs.ready` |
 | `do-request-submit` | `customs/task.completed` for the DO request | Raises the DO request on ODeX once per house bill, uploading the folder PDF, then moves the job to DO requested and sends `customs/do.request.submitted` |
+| `do-edo-collect` | `customs/do.edo.received` (CMA CGM's mail) | Collects the eDO from ODeX for each house bill; once all are in, moves the job to eDO received |
 
-Ops act through tasks: building the folder completes the review, and approving the DO request starts the ODeX run. Each request takes an insert-once claim per house bill, so a replayed or repeated run never raises it twice. A browser run that fails isn't retried blindly: the error goes on the task, with the house bills to check on ODeX before approving again.
+[`PROCESS.md`](PROCESS.md) numbers the steps, from the pre-alert to the eDO. For each step, it gives the mail that starts it, what the app does and what it keeps.
+
+With `DO_AUTOMATE_PORTALS` on (`make demo-local` turns it on), the steps before and after the folder run from the mail, as `docs/design/LLD.md` §4.2 lays out. The agent runs a step by itself when its mail arrives. Ops approve the three that confirm or move money (the two RTGS confirmations and the ODeX deposit) and the DO request, under Process on the job. A step that fails stops with the error on its task. Ops can start it again from there, after checking the portal for a step that submits. Each submit takes an insert-once claim, so a replay never submits twice. With it off, nothing new runs, and ops do these steps by hand as before.
+
+Ops act through tasks: building the folder completes the review, approving a payment or the DO request starts its run. Each request takes an insert-once claim per house bill, so a replayed or repeated run never raises it twice. A browser run that fails isn't retried blindly: the error goes on the task, with the house bills to check on ODeX before approving again.
 
 Until the ODeX SOP is written, the DO request is raised by hand and approving it records that it's done. `backend/sops/odex/README.md` says what the SOP needs; once the file is there, approving runs the browser agent instead. Pointing `DO_ODEX_SOP` at the local ODeX's SOP (`make demo-local` does) shows the whole run on this machine.
 
@@ -82,8 +93,10 @@ There is no general classifier. A mail is read only if it has the short marker `
 | Mail | What is read | What happens |
 |---|---|---|
 | CMA CGM RTGS/NEFT confirmation with an invoice | UTR, invoice number, BL number | `payment_utr` and `do_invoice_no` are filled; the receipt goes to the DO Receipt slot |
-| The same with no invoice (the 40,000 deposit) | UTR, BL number | `deposit_utr` is filled; the receipt goes to the Security Receipt slot |
+| The same with no invoice (the 40,000 deposit) | UTR, BL number, and the receipt's number | `deposit_utr` is filled; the receipt goes to the Security Receipt slot, and its number fills `security_receipt_no`, the CMA iReceipt no. that ODeX's deposit asks for |
 | ODeX security slip | The house bill number | The slip goes to the Security-cum-ODEX Receipt slot of the job that has that house bill |
+| ODeX "Invoices Received for <B/L>" (the liner released the invoices) | The B/L and each invoice number | `do_invoice_no` is filled, and `customs/do.invoice.verified` sends the agent to collect the invoice from ODeX |
+| Finance's reply to the app's payment mail | "Invoice UTR:" and "Deposit UTR:" | `payment_utr`, `deposit_utr` and, when empty, the date of transfer are filled |
 | Draft MBL and HBL mail | The MBL number | Opens the job if there is none. Each attachment goes to its slot by file name, or by what is in it. Read from the bills: HBL numbers, containers, vessel, voyage, and the consignees |
 
 Mail with the marker that no recognizer knows is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers):
@@ -121,9 +134,9 @@ Mail without a code, or with an MBL no job has, is ignored. To receive real mail
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
 
-- **ODeX** (`/odex`). The login is the real ODeX India login page, which works like it: the same fields and ids, its captcha drawn and checked the same way, the company to choose after the password, and the "already logged in another session" question. The invoice and DO request steps are the team's two ODeX guides: their screenshots, with live buttons and fields over only what the process uses. The invoice guide covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. The DO request guide ("DO final steps corrected") covers Documents → DO Request, its advertisement, and the DO request itself, with the folder added through Add Row; the list then offers the eDO once issued. New Deposit (with its slip once approved) is a plain page until a guide covers it.
+- **ODeX** (`/odex`). The login is the real ODeX India login page, which works like it: the same fields and ids, its captcha drawn and checked the same way, the company to choose after the password, and the "already logged in another session" question. The invoice and DO request steps are the team's two ODeX guides: their screenshots, with live buttons and fields over only what the process uses. The invoice guide covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. The DO request guide ("DO final steps corrected") covers Documents → DO Request, its advertisement, and the DO request itself, with the folder added through Add Row; the list then offers the eDO once issued. The deposit guide ("Security deposit number 1") covers Counter Process → Security Deposit & Refund, NEW - DEPOSIT and the request's View; the list then offers the deposit slip once approved.
 - **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from the real one's HTML (same ids, checks and messages, and the same page after Submit), invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
-- **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
+- **A control panel** (`/control`) that plays CMA CGM and Finance: it releases invoices, emails receipts, approves deposits and issues eDOs, and pays the app's payment mails, by a click or by autoplay. Its mails read like the real ones (the RTGS confirmation, the security slip); the invoice-released and eDO mails, which haven't been seen, carry a code line. In `make demo-local` each mail goes to the app's mailbox on this machine and its webhook, so the app reads it like real mail (`backend/local_portals/mail.py`). Otherwise nothing is sent.
 
 The pages look like the real ones, with no demo banner or watermark; the portals listen only on this machine, and the documents they hand out have DEMO in their numbers (INV-DEMO-…). The ODeX screenshots show a real account, so `make assets` keeps them in `backend/assets/private/`, out of git, and `make odex-login-screen` saves the login page's there too. The documents (invoice, receipts, deposit slip, eDO) follow the samples in `Docs/` and carry the B/L numbers, so they pass the DO folder's checks.
 

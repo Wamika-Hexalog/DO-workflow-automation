@@ -291,6 +291,24 @@ def test_the_draft_mail_opens_the_job_and_fills_its_fields_from_the_bills_includ
     assert not any(f["kind"] == "fields" for s in job["slots"] for f in s["flags"]), "letters still need fields"
 
 
+def test_a_cma_cgm_invoice_in_the_pre_alert_is_not_taken_for_the_mbl(
+    api: TestClient, engine: Engine, client: RecordingInngest, inbox: dict
+) -> None:
+    # Protects: only a bill of lading goes into the MBL slot. Fails if CMA CGM's invoice, which names the MBL, replaces it.
+    mbl = "SHZ1234567"
+    inbox["m1"] = mail(f"DOHACK:document:{mbl}")
+    ATTACHMENTS["m1"] = [
+        (f"MBL-{mbl}.pdf", f"BILL OF LADING NUMBER {mbl}"),
+        ("12345678A HBL.pdf", HBL_PAGE.format(hbl="WOLSZSE12345678A", box=containers.EXAMPLE)),
+        ("UPC00000001.pdf", f"ORIGINAL* IMPORT INVOICE Bill of Lading: {mbl} TAX INVOICE Total Amount: 54,720.68"),
+    ]
+    receive(client)
+    engine.run()
+    (job,) = [j for j in api.get("/api/shipments").json() if j["values"]["mbl_no"] == mbl]
+    assert slot(job, "mbl")["file"]["name"] == f"MBL-{mbl}.pdf"
+    assert not any(s["file"] and s["file"]["name"] == "UPC00000001.pdf" for s in job["slots"])
+
+
 def test_a_second_draft_mail_for_the_same_mbl_does_not_open_a_second_job(
     api: TestClient, engine: Engine, client: RecordingInngest, inbox: dict
 ) -> None:

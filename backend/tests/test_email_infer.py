@@ -28,12 +28,45 @@ Container - ECMU1234565
 Instrument No. - 100000000001
 Status - Deposit Approved
 """
+# CMA CGM's Security Receipt, as its text reads: the number on the line under "RECEIPT".
+SECURITY_RECEIPT = """Received From:
+HEXALOG GLOBAL SUPPLY CHAINSPVT LTD
+RECEIPT
+90000002
+Date: 03-OCT-2026
+Collected By: RTGS/NEFT Transfer
+Invoice Number BL Number Invoice Amount Amount Received
+- SHZ1234567 40,000.00 INR 40,000.00 INR
+Electronic Receipt - No Signature/Stamp required."""
 DRAFT = """Please find the attached revised Drafts documents for your review & approval.
 MBL and HBL & Invoice Number.
 MBL HBL Invoice Number
 SHZ1234567 WOLSZSE12345678A 2026/ML/21-08/01
 SHZ1234567 WOLSZSE12345678B 2026/ML/21-08/02
 """
+
+# Finance's reply to the app's payment mail, quoting it: the quoted lines are empty.
+FINANCE_REPLY = """Paid both today.
+Invoice UTR: SBIN526000000001
+Deposit UTR: SBIN526000000002
+
+From: DO workflow
+Please pay CMA CGM for MBL SHZ1234567 (job HXL/IMP/26-27/0001), house bills WOLSZSE12345678A:
+Invoice UTR:
+Deposit UTR: will follow
+"""
+
+# ODeX's notice, forwarded twice: each table cell is a block, so a row spans lines.
+ODEX_RELEASED = (
+    "<div>---------- Forwarded message ---------<br />From: &lt;notification@odexservices.com&gt;<br />"
+    "Subject: ODeX: Invoices Received for SHZ1234567</div><div><br />Dear Sir/Madam,<br /><br />"
+    "Invoices released for SHZ1234567,<br />Type Of Delivery:   Factory Destuff<br />IGM No.:   <br /></div>"
+    "<table><tbody><tr><th><div>Invoice No.</div></th><th><div>Invoice Type</div></th>"
+    "<th><div>Total Invoice Amt.</div></th><th><div>Bill to Party</div></th></tr>"
+    "<tr><td><div><b>INIUPC00000001</b></div></td><td><div>NON FREIGHT</div></td><td><div>54720.68</div></td>"
+    "<td><div>HEXALOG GLOBAL SUPPLY CHAINSPVT LTD</div></td></tr></tbody></table>"
+    "<div>Note:This is a system generated e-mail. Please do NOT reply to it.<br />Regards,<br />ODeX Support Team</div>"
+)
 
 
 def facts(subject: str, body: str) -> list[tuple[str, str, str | None]]:
@@ -58,6 +91,22 @@ def test_an_rtgs_confirmation_without_an_invoice_is_the_deposit_and_its_security
 def test_the_security_slip_names_the_house_bill_whose_slot_it_fills() -> None:
     assert facts("#DOHACK Fw: ODeX: Security slip - SD2026000000001", SLIP) == [
         ("document", "WOLSZSE12345678A", "security_odex_receipt:WOLSZSE12345678A")
+    ]
+
+
+def test_odex_invoices_received_names_each_released_invoice_for_the_bl() -> None:
+    # Protects: ODeX's notice starts collecting the invoice. Fails if its table, split across lines, isn't read.
+    assert facts("#DOHACK Fw: ODeX: Invoices Received for SHZ1234567", ODEX_RELEASED) == [
+        ("invoice", "SHZ1234567", "INIUPC00000001")
+    ]
+
+
+def test_finances_reply_gives_both_utrs_and_not_the_lines_it_quotes() -> None:
+    # Protects: Finance's reply fills the invoice and deposit UTRs. Fails if a quoted empty line or words are read as a UTR.
+    subject = "Re: HXL/IMP/26-27/0001 // SHZ1234567 // CMA // #DOHACK"
+    assert facts(subject, FINANCE_REPLY) == [
+        ("utr", "SHZ1234567", "SBIN526000000001"),
+        ("utr", "SHZ1234567", "deposit:SBIN526000000002"),
     ]
 
 
@@ -97,6 +146,22 @@ def test_a_marked_rtgs_forward_fills_the_fields_and_the_receipt_slot_with_no_cod
     assert after["values"]["payment_utr"] == "100000000001"
     assert after["values"]["do_invoice_no"] == "INVDEMO000001"
     assert slot(after, "do_receipt")["file"] is not None
+
+
+def test_the_deposits_rtgs_forward_gives_the_cma_ireceipt_no_from_its_security_receipt(
+    api: TestClient, engine: Engine, client: RecordingInngest, inbox: dict  # noqa: F811
+) -> None:
+    # Protects: the number ODeX's deposit asks for is read off the Security Receipt the RTGS mail brings.
+    # Fails if a file attached to a slot the mail names isn't read, or CMA CGM's "RECEIPT" layout isn't.
+    shipment = new_shipment(api, mbl_no="SHZ1234567", hbl_nos="WOLSZSE12345678A", containers="")
+    inbox["m1"] = mail(RTGS_DEPOSIT, subject="#DOHACK Fw: CMA CGM India - RTGS/NEFT Payment Confirmation - Request Id: 10000002")
+    ATTACHMENTS["m1"] = [("Receipt.pdf", SECURITY_RECEIPT)]
+    receive(client)
+    engine.run()
+    after = api.get(f"/api/shipments/{shipment['id']}").json()
+    assert after["values"]["deposit_utr"] == "100000000002"
+    assert after["values"]["security_receipt_no"] == "90000002"
+    assert slot(after, "security_receipt")["file"] is not None
 
 
 def test_a_marked_security_slip_goes_to_the_job_that_has_that_house_bill(

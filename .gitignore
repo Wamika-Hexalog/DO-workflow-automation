@@ -13,3 +13,6 @@ backend/assets/private/
 # Local working notes
 /HANDOFF.md
 /TASKS.md
+
+# Real shipment documents used in demos: never commit.
+demo shipment/

@@ -37,7 +37,7 @@ from app.portal_params import (
 )
 from app.workflows import browser
 from conftest import HBL, MBL, Engine, RecordingInngest, attach, build, make_pdf, new_shipment, settings_for, task
-from local_portals import cma
+from local_portals import cma, mail
 from local_portals.main import create_app as create_portals
 
 pytestmark = pytest.mark.browser
@@ -48,6 +48,7 @@ def portals(tmp_path, monkeypatch):
     """The local portals, served on a free port for the browser to open."""
     for name, value in LOCAL_ODEX_LOGIN.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LOCAL_ODEX_INVOICES_DIR", raising=False)
     app = create_portals(tmp_path / "portals", autoplay=False)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
@@ -77,6 +78,42 @@ def do_app(tmp_path, private_dir, portals):
     app = create_app(settings, client)
     with TestClient(app) as api:
         yield api, Engine(app, client)
+
+
+@pytest.fixture()
+def process_app(tmp_path, private_dir, portals, monkeypatch):
+    """The app with every portal step on (DO_AUTOMATE_PORTALS), served on a free port,
+    so the local CMA CGM and Finance mail it through its Graph webhook, as in the demo."""
+    settings = settings_for(
+        tmp_path,
+        private_dir,
+        odex_sop_path=portal_params.STEPS[DO_REQUEST].sop,
+        browser_headless=os.getenv("DO_BROWSER_HEADLESS", "1") != "0",
+        odex_url=f"{portals.url}/odex",
+        cma_rtgs_url=f"{portals.url}/cma-rtgs",
+        automate_portals=True,
+    )
+    client = RecordingInngest()
+    app = create_app(settings, client)
+    with TestClient(app) as api:
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning", lifespan="off"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 15
+        while not server.started:
+            assert time.monotonic() < deadline, "the app didn't start"
+            time.sleep(0.05)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        # The local portals find the app's mailbox, and how it reads mail, as the demo does.
+        for name, value in {
+            "DO_PORTALS_MAIL_TO": f"http://127.0.0.1:{port}", "DO_STORAGE_DIR": str(settings.storage_dir),
+            "MAIL_MARKER": settings.mail_marker, "INJECT_CODE_PREFIX": settings.inject_code_prefix,
+            "GRAPH_CLIENT_STATE": settings.graph_client_state,
+        }.items():
+            monkeypatch.setenv(name, value)
+        yield api, Engine(app, client)
+        server.should_exit = True
+        thread.join(timeout=10)
 
 
 def run(api: TestClient, shipment: dict, step_key: str) -> list[dict]:
@@ -112,9 +149,14 @@ def emailed(portals: SimpleNamespace, name_starts: str) -> tuple[str, bytes]:
     raise AssertionError(f"CMA CGM emailed no {name_starts}")
 
 
+# The CHA's account the deposit is refunded into: fixed details with no default.
+REFUND_ACCOUNT = {"refund_bank": "DEMO BANK", "refund_branch": "DEMO BRANCH", "refund_account_no": "000000000001",
+                  "refund_ifsc": "DEMO0000001"}
+
+
 def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     api, engine = do_app
-    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012"}
+    fixed = {"do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012", **REFUND_ACCOUNT}
     assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
     s = attach(api, new_shipment(api), "mbl", make_pdf(f"MASTER BILL {MBL}"))
 
@@ -155,10 +197,14 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     s = attach(api, s, "do_receipt", receipt, name)
     name, receipt = emailed(portals, "Security Receipt")
     s = attach(api, s, "security_receipt", receipt, name)
+    # The mail ingest reads the receipt's number; an upload leaves it to ops to type.
+    receipt_no = name.removeprefix("Security Receipt ").removesuffix(".pdf")
+    s = api.patch(f"/api/shipments/{s['id']}/values", json={"values": {"security_receipt_no": receipt_no}}).json()
 
-    # The deposit, with Hexalog's NOC and the security receipt, then its slip once approved.
-    assert run(api, s, DEPOSIT)[0]["odex_deposit_ref"].startswith("SD")
-    assert run(api, s, DEPOSIT_STATUS)[0]["deposit_status"] == "Pending Approval"
+    # The deposit (the team's third guide), with Hexalog's NOC, then its slip once approved.
+    deposit_run = run(api, s, DEPOSIT)[0]
+    assert deposit_run["odex_deposit_ref"].startswith("SD") and deposit_run["odex_deposit_status"] == "Deposit Requested"
+    assert run(api, s, DEPOSIT_STATUS)[0]["deposit_status"] == "Deposit Requested"
     answer(portals, "deposits")
     status = run(api, s, DEPOSIT_STATUS)[0]
     assert status["deposit_status"] == "Deposit Approved"
@@ -166,8 +212,11 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     s = attach(api, s, f"security_odex_receipt:{HBL}", slip, "Security deposit slip.pdf")
     with portals.store.read() as data:
         deposit = dict(data["deposits"][0])
-    assert (deposit["bl_no"], deposit["utr"], deposit["refund_to"]) == (HBL, "DEMOUTR0001DEP", "Third Party")
-    assert deposit["noc_file"] and deposit["receipt_file"]
+    assert (deposit["bl_no"], deposit["mbl_no"], deposit["utr"], deposit["ireceipt_no"]) == (HBL, MBL, "DEMOUTR0001DEP", receipt_no)
+    assert (deposit["mode_of_payment"], deposit["refund_to"], deposit["refund_account"]["number"]) == (
+        "Non-ODeX-RTGS", "ThirdParty", "000000000001",
+    )
+    assert [a["doc_type"] for a in deposit["attachments"]] == ["NOC (on the letter head of MBL consignee)"]
 
     # The DO folder takes the portals' documents like the real ones.
     s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
@@ -213,3 +262,95 @@ def test_the_rtgs_pages_own_checks_stop_a_bad_payment(do_app, portals):
         run(api, s, RTGS_SHIPMENT)
     with portals.store.read() as data:
         assert data["rtgs_requests"] == []
+
+
+def tasks_of(api: TestClient, shipment: dict) -> dict[str, dict]:
+    return {t["key"]: t for t in api.get(f"/api/shipments/{shipment['id']}").json()["tasks"]}
+
+
+def approve(api: TestClient, shipment: dict, task_key: str) -> None:
+    response = api.post(f"/api/shipments/{shipment['id']}/tasks/{task_key}/complete", json={"by": "Ravi"})
+    assert response.status_code == 202, response.text
+
+
+def mailed(portals: SimpleNamespace, engine: Engine) -> None:
+    """CMA CGM's new mail reaches the app's webhook (local_portals/mail.py); the app reads it."""
+    assert mail.deliver_pending(portals.store) > 0
+    engine.run()
+
+
+def test_the_process_runs_from_the_mails(process_app, portals):
+    # Protects: each portal step starts from its mail or an ops approval, and the job moves through every stage. Fails if a mail, an event or a task stops the chain.
+    api, engine = process_app
+    fixed = {
+        "do_mailbox": "do-desk@example.com", "payer_account_no": "123456789012", "finance_email": "finance@example.com",
+        **REFUND_ACCOUNT,
+    }
+    assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
+    s = new_shipment(api)
+
+    # The MBL is in: the agent requests the DO invoice on ODeX by itself.
+    s = attach(api, s, "mbl", make_pdf(f"MASTER BILL {MBL}"))
+    engine.run()
+    assert tasks_of(api, s)["odex_invoice_request"]["status"] == "completed"
+
+    # The liner's mail says the invoice is out: the agent collects it, and the app mails Finance.
+    answer(portals, "invoice_requests")
+    mailed(portals, engine)
+    with portals.store.read() as data:
+        invoice = dict(data["invoice_requests"][0])
+    values = api.get(f"/api/shipments/{s['id']}").json()["values"]
+    assert (values["do_invoice_no"], float(values["do_invoice_amount"])) == (invoice["invoice_no"], invoice["amount"])
+    assert tasks_of(api, s)["finance_mail"]["status"] == "completed"
+    [payment_mail] = mail.finance_mails(portals.store)
+    assert payment_mail["to"] == "finance@example.com" and payment_mail["subject"].startswith(f"{s['job_no']} // {MBL} // CMA //")
+
+    # Finance pays and replies with the UTRs. Both confirmations on the RTGS page wait for ops.
+    mail.pay(portals.store, payment_mail["id"])
+    engine.run()
+    values = api.get(f"/api/shipments/{s['id']}").json()["values"]
+    assert values["payment_utr"] and values["deposit_utr"] and values["payment_date"] == date.today().isoformat()
+    waiting = tasks_of(api, s)
+    assert waiting["cma_rtgs_payment"]["status"] == waiting["cma_rtgs_deposit"]["status"] == "awaiting_approval"
+    assert waiting["odex_deposit"]["status"] == "pending"  # CMA CGM's security receipt isn't in yet
+    approve(api, s, "cma_rtgs_payment")
+    approve(api, s, "cma_rtgs_deposit")
+    engine.run()
+    assert api.get(f"/api/shipments/{s['id']}").json()["status"] == "invoice_paid"
+
+    # CMA CGM's receipts come by mail into the folder; then the deposit waits for ops.
+    answer(portals, "rtgs_requests")
+    mailed(portals, engine)
+    assert tasks_of(api, s)["odex_deposit"]["status"] == "awaiting_approval"
+    approve(api, s, "odex_deposit")
+    engine.run()
+    with portals.store.read() as data:
+        deposit = dict(data["deposits"][0])
+    assert (deposit["bl_no"], deposit["utr"]) == (HBL, values["deposit_utr"])
+
+    # CMA CGM approves it; ODeX's mail brings the slip for the house bill.
+    answer(portals, "deposits")
+    mailed(portals, engine)
+    s = api.get(f"/api/shipments/{s['id']}").json()
+    assert s["status"] == "deposit_approved"
+
+    # The folder and the DO request, as before; then the eDO by mail.
+    s = attach(api, s, f"hbl:{HBL}", make_pdf(f"HOUSE BILL MSEC-260803047 -251 B/L {MBL}"))
+    s = build(api, engine, s)
+    assert s["status"] == "folder_ready", [t["note"] for t in s["tasks"]]
+    approve(api, s, "odex_do_request")
+    engine.run()
+    answer(portals, "do_requests")
+    mailed(portals, engine)
+    s = api.get(f"/api/shipments/{s['id']}").json()
+    assert s["status"] == "edo_received" and s["edo_received_on"] == date.today().isoformat()
+    assert {t["key"]: t["status"] for t in s["tasks"]} == {
+        key: "completed" for key in (
+            "odex_invoice_request", "odex_invoice_collect", "finance_mail", "cma_rtgs_payment", "cma_rtgs_deposit",
+            "odex_deposit", "folder_review", "odex_do_request", "odex_edo",
+        )
+    }
+    # Seven runs of the agent, one per portal step: the invoice twice, two payments, the deposit,
+    # the DO request and the eDO.
+    runs = api.get(f"/api/shipments/{s['id']}/runs").json()
+    assert len(runs) == 7 and {r["status"] for r in runs} == {"completed"}

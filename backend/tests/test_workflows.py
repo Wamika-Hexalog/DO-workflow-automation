@@ -1,6 +1,7 @@
 """The Inngest workflows, run in process by the test engine from conftest."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import inngest
@@ -111,6 +112,47 @@ def test_a_failed_build_goes_back_to_ops(api, engine, private_dir):
     stamp.write_bytes(saved)
     s = build(api, engine, s)
     assert s["status"] == "folder_ready"
+
+
+def test_ops_approve_a_payment_once_it_is_ready_and_restart_a_step_only_after_it_failed(api):
+    # Protects: the task buttons refuse a click that doesn't fit the step. Fails if a payment can be approved before it's ready, or a step the agent runs restarted when it hasn't failed.
+    s = new_shipment(api)
+    early = api.post(f"/api/shipments/{s['id']}/tasks/cma_rtgs_payment/complete", json={"by": "Ravi"})
+    assert early.status_code == 409 and "Nothing to approve yet" in early.json()["detail"]
+    again = api.post(f"/api/shipments/{s['id']}/tasks/odex_invoice_request/complete", json={"by": "Ravi"})
+    assert again.status_code == 409 and "after it failed" in again.json()["detail"]
+    assert api.post(f"/api/shipments/{s['id']}/tasks/no_such_step/complete", json={}).status_code == 404
+
+
+def test_the_payment_mail_goes_to_finance_with_the_invoice_and_the_cc(tmp_path, private_dir):
+    # Protects: the app's mail to Finance: To, the Cc every mail carries, the subject Finance replies on, the
+    # invoice, and one mail per job. Fails if the Cc or the invoice is left off, or a replay mails Finance again.
+    client = RecordingInngest()
+    app = create_app(settings_for(tmp_path, private_dir, automate_portals=True), client)
+    with TestClient(app) as api:
+        engine = Engine(app, client)
+        fixed = {"finance_email": "finance@example.com", "mail_cc": "lead@example.com, desk@example.com"}
+        assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
+        s = new_shipment(api, do_invoice_no="INV-DEMO-00001", do_invoice_amount="54720.68")
+        storage = app.state.rt.settings.storage_dir
+        invoice = storage / s["id"] / "portal" / f"DO-invoice-{MBL}.pdf"
+        invoice.parent.mkdir(parents=True)
+        invoice.write_bytes(make_pdf(f"TAX INVOICE INV-DEMO-00001 BL {MBL}"))
+        collected = inngest.Event(name=EventNames.INVOICE_COLLECTED, data={"shipment_id": s["id"]})
+        client.sent.append(collected)
+        engine.run()
+
+        [message] = [json.loads(path.read_text()) for path in (storage / "outbox").glob("*/message.json")]
+        assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["finance@example.com"]
+        assert [r["emailAddress"]["address"] for r in message["ccRecipients"]] == ["lead@example.com", "desk@example.com"]
+        assert message["subject"].startswith(f"{s['job_no']} // {MBL} // CMA //")
+        assert [f.name for f in (storage / "outbox" / message["id"] / "attachments").iterdir()] == [invoice.name]
+        note = task(api.get(f"/api/shipments/{s['id']}").json(), "finance_mail")["note"]
+        assert "(finance@example.com, cc lead@example.com, desk@example.com)" in note
+
+        client.sent.append(collected)
+        engine.run()
+        assert len(list((storage / "outbox").glob("*/message.json"))) == 1
 
 
 def test_building_opens_the_do_request_for_ops(api, engine):

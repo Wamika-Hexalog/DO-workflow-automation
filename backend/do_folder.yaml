@@ -40,6 +40,11 @@ profile_fields:
   - { key: do_mailbox, label: Emails for CMA CGM's invoice and receipts, default: "kishan@hexalog.in,customs-ops@Hexalog.in" }
   # Kept out of this file: entered once in the fixed details. Only the RTGS page needs it.
   - { key: payer_account_no, label: Bank account no. that pays CMA CGM, code: true, optional: true }
+  # Where the app mails the DO invoice for payment (DO_AUTOMATE_PORTALS). Finance replies with the UTRs.
+  # No default: whoever sets the app up says who gets real mail.
+  - { key: finance_email, label: Finance's email for the DO invoice }
+  # Copied on every mail the app sends, comma-separated. No default, as for Finance.
+  - { key: mail_cc, label: Cc on every mail the app sends, optional: true }
   # The DO request on ODeX, as the team's guide "DO final steps corrected" fills it.
   # Its screenshots leave the runner boy and his mobile no. empty.
   - { key: odex_hss_customer, label: HSS customer name on ODeX's DO request, default: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD }
@@ -51,6 +56,15 @@ profile_fields:
   - { key: odex_do_remarks, label: Remarks on ODeX's DO request, default: Forwarder Letter attached to authorise CHA }
   - { key: odex_runner_boy, label: Runner boy on ODeX's DO request, optional: true }
   - { key: odex_runner_mobile, label: Runner boy's mobile no. on ODeX's DO request, code: true, optional: true }
+  # The security deposit on ODeX, as the team's guide "Security deposit number 1" fills
+  # it: refunded to the CHA, as a third party, into the CHA's bank account. The account
+  # is kept out of this file: entered once in the fixed details.
+  - { key: refund_party, label: Deposit refunded to (as ODeX and the bank name the CHA), default: JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED }
+  - { key: refund_bank, label: Bank of the refund account, optional: true }
+  - { key: refund_branch, label: Branch of the refund account, optional: true }
+  - { key: refund_account_type, label: Type of the refund account, type: select, options: [Current, Savings], default: Current }
+  - { key: refund_account_no, label: Refund account no., code: true, optional: true }
+  - { key: refund_ifsc, label: IFSC code of the refund account, code: true, optional: true }
 
 # Entered once per shipment (one MBL) and printed by the letters that use them.
 shipment_groups:
@@ -105,6 +119,8 @@ shipment_groups:
       - { key: payment_utr, label: UTR for the shipment payment, code: true, optional: true }
       - { key: deposit_utr, label: UTR for the security deposit, code: true, optional: true }
       - { key: payment_date, label: Date of transfer, type: date, optional: true }
+      # The number on CMA CGM's Security Receipt. ODeX's deposit asks for it.
+      - { key: security_receipt_no, label: CMA iReceipt no. (Security Receipt), code: true, optional: true }
       - key: deposit_refund_to
         label: Deposit refunded to
         type: select

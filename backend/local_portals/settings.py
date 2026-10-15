@@ -15,6 +15,13 @@ load_dotenv(BACKEND_DIR / ".env", override=False)
 ACCOUNT_NAME = os.getenv("LOCAL_ODEX_ACCOUNT", "DEMO CHA ACCOUNT (LOCAL ODEX)")
 
 
+def real_invoices_dir() -> Path | None:
+    """Where a demo shipment's real liner invoices are (LOCAL_ODEX_INVOICES_DIR): the local
+    ODeX releases the one that names the B/L instead of a demo invoice. Kept out of git."""
+    folder = os.getenv("LOCAL_ODEX_INVOICES_DIR", "").strip()
+    return Path(folder) if folder else None
+
+
 def data_dir() -> Path:
     return Path(os.getenv("DO_DATA_DIR", str(BACKEND_DIR / "data"))) / "local_portals"
 

@@ -3,7 +3,7 @@ portals are. The portals listen only on this machine (make portals binds 127.0.0
 and the documents they hand out carry DEMO in their numbers (INV-DEMO-…)."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from html import escape
 
 from fastapi.responses import HTMLResponse
@@ -27,17 +27,6 @@ header.site { background:#2f363d; color:#fff; padding:8px 16px; display:flex; fl
               gap:8px 20px; }
 header.site .name { font-weight:600; font-size:16px; }
 header.site .name small { font-weight:400; color:#c9d1d9; }
-header.site .user { margin-left:auto; font-size:13px; }
-header.site .user a { color:#fff; }
-nav.menu { display:flex; flex-wrap:wrap; gap:2px; }
-nav.menu .group { position:relative; }
-nav.menu button { background:transparent; border:1px solid transparent; color:#fff; padding:6px 10px;
-                  border-radius:6px; cursor:pointer; font:inherit; }
-nav.menu button:hover, nav.menu button[aria-expanded="true"] { border-color:#6e7781; }
-nav.menu .sub { position:absolute; top:100%; left:0; z-index:5; background:#fff; border:1px solid var(--line);
-                border-radius:6px; padding:4px; min-width:190px; box-shadow:0 8px 24px rgba(0,0,0,.15); }
-nav.menu .sub a { display:block; color:var(--ink); padding:6px 10px; border-radius:4px; text-decoration:none; }
-nav.menu .sub a:hover { background:var(--bg); }
 main { max-width:1080px; margin:0 auto; padding:20px 16px 48px; }
 h1 { font-size:20px; margin:0 0 4px; }
 h2 { font-size:16px; margin:24px 0 8px; }
@@ -74,20 +63,6 @@ td.num { text-align:right; white-space:nowrap; }
 code { font-size:12px; background:var(--bg); padding:1px 4px; border-radius:4px; }
 """
 
-# Opens and closes the drop-down menus, as on the real portals.
-_MENU_SCRIPT = """
-document.querySelectorAll('nav.menu button').forEach((button) => {
-  button.addEventListener('click', () => {
-    const sub = document.getElementById(button.id.replace('menu-', 'submenu-'));
-    const opening = sub.hidden;
-    document.querySelectorAll('nav.menu .sub').forEach((s) => { s.hidden = true; });
-    document.querySelectorAll('nav.menu button').forEach((b) => b.setAttribute('aria-expanded', 'false'));
-    sub.hidden = !opening;
-    button.setAttribute('aria-expanded', String(opening));
-  });
-});
-"""
-
 
 def esc(value: object) -> str:
     return escape("" if value is None else str(value), quote=True)
@@ -98,8 +73,6 @@ def page(
     body: str,
     *,
     site: str,
-    menu: str = "",
-    user: str = "",
     script: str = "",
     status_code: int = 200,
     body_attrs: str = "",
@@ -107,28 +80,15 @@ def page(
     header: bool = True,
 ) -> HTMLResponse:
     name = SITE_NAMES[site]
-    scripts = (_MENU_SCRIPT if menu else "") + script
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)} · {esc(name)}</title><style>{_STYLE}{style}</style></head>
 <body{f" {body_attrs}" if body_attrs else ""}>
-{f'<header class="site"><span class="name">{esc(name)} <small>local</small></span>{menu}{user}</header>' if header else ""}
+{f'<header class="site"><span class="name">{esc(name)} <small>local</small></span></header>' if header else ""}
 <main>{body}</main>
-{f"<script>{scripts}</script>" if scripts else ""}
+{f"<script>{script}</script>" if script else ""}
 </body></html>"""
     return HTMLResponse(html, status_code=status_code)
-
-
-def menu(groups: Sequence[tuple[str, str, Sequence[tuple[str, str, str]]]]) -> str:
-    """A menu bar of drop-downs: (id, label, [(id, label, href), ...]) per group."""
-    parts = []
-    for group_id, label, links in groups:
-        items = "".join(f'<a id="nav-{esc(i)}" href="{esc(href)}">{esc(text)}</a>' for i, text, href in links)
-        parts.append(
-            f'<div class="group"><button type="button" id="menu-{esc(group_id)}" aria-expanded="false">'
-            f'{esc(label)} ▾</button><div class="sub" id="submenu-{esc(group_id)}" hidden>{items}</div></div>'
-        )
-    return f'<nav class="menu" id="menu">{"".join(parts)}</nav>'
 
 
 def field(name: str, label: str, *, type: str = "text", value: str = "", hint: str = "", extra: str = "") -> str:
@@ -137,17 +97,6 @@ def field(name: str, label: str, *, type: str = "text", value: str = "", hint: s
         f'<label class="field" id="field-{esc(name)}"><span>{esc(label)}</span>'
         f'<input id="{esc(name)}" name="{esc(name)}" type="{esc(type)}" value="{esc(value)}" '
         f'autocomplete="off" {extra}>{hint_html}</label>'
-    )
-
-
-def select(name: str, label: str, options: Iterable[str], *, chosen: str = "", hint: str = "") -> str:
-    items = ['<option value="">Select</option>'] + [
-        f'<option value="{esc(o)}"{" selected" if o == chosen else ""}>{esc(o)}</option>' for o in options
-    ]
-    hint_html = f'<span class="hint">{esc(hint)}</span>' if hint else ""
-    return (
-        f'<label class="field" id="field-{esc(name)}"><span>{esc(label)}</span>'
-        f'<select id="{esc(name)}" name="{esc(name)}">{"".join(items)}</select>{hint_html}</label>'
     )
 
 
@@ -160,7 +109,7 @@ def table(table_id: str, headers: Sequence[str], rows: Sequence[str], empty: str
 
 def status(text: str) -> str:
     tone = {"Rejected": "bad"}.get(text) or (
-        "wait" if text in ("Submitted", "Pending Approval", "Received", "Pending Verification") else "ok"
+        "wait" if text in ("Submitted", "Deposit Requested", "Received", "Pending Verification") else "ok"
     )
     return f'<span class="status {tone}">{esc(text)}</span>'
 

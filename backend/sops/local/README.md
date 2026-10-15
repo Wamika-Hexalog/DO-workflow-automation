@@ -6,7 +6,7 @@ The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fiel
 
 The local ODeX's login is the real ODeX India login page: its screenshot (`make odex-login-screen` takes it, without typing anything), with live fields under the real ids, and the real page's script. It draws and checks the captcha the same way, then asks for the company, and asks before closing another session of the same login. So the SOPs' login steps are the real ones.
 
-The local ODeX shows the team's step-by-step guides: "Delivery Order Request-First step 1" for the invoice, and "DO final steps corrected" for the DO request. Each page is a guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guides in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. The deposit, which no guide covers yet, has plain pages that follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx`. See [Moving to the real sites](#moving-to-the-real-sites).
+The local ODeX shows the team's three step-by-step guides: "Delivery Order Request-First step 1" for the invoice, "Security deposit number 1" for the security deposit, and "DO final steps corrected" for the DO request. Each page is a guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guides in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
 
@@ -19,7 +19,16 @@ make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1
 
 Between steps, play CMA CGM on the control panel at http://127.0.0.1:8100/control: release the invoice, email the receipts, approve the deposit, issue the eDO. You can also turn on autoplay so each answer comes by itself a few seconds later. The panel also shows the emails CMA CGM would send, with their attachments. Nothing is actually sent.
 
-`make demo-local` runs the app, the Inngest dev server and the portals together. With it, approving a DO request in the app raises it on the local ODeX, in a visible browser.
+`make demo-local` runs the app, the Inngest dev server and the portals together, with `DO_AUTOMATE_PORTALS` on. The whole process then runs from the mail, each step in a visible browser:
+
+1. Attach the MBL to a job (or send the draft MBL and HBL mail). The agent requests the DO invoice on ODeX.
+2. Release the invoice on the control panel. Its mail brings the agent back to collect the invoice. The app then mails it to Finance; locally, that mail goes to the app's outbox folder.
+3. Under Finance on the control panel, pay and reply. The app reads the two UTRs. The two RTGS confirmations then wait for ops, under Process on the job.
+4. Approve them. Email the receipts on the control panel, and the raise of the deposit waits for ops. Approve it.
+5. Approve the deposit on the control panel. ODeX's slip comes by mail, and the job moves to Deposit approved.
+6. Review and build the folder, and approve the DO request. Issue the eDO on the control panel: its mail brings the agent back to collect it, and the job moves to eDO received.
+
+Autoplay answers for CMA CGM and Finance by itself, so only the ops approvals need a click. `make portal-step` still runs any one step by hand.
 
 ODeX login: `hexalog-demo` / `local-demo-only`, from `LOCAL_ODEX_USERNAME` and `LOCAL_ODEX_PASSWORD` (`app/config.py`). It's not a secret: the portal only runs on this machine. Type the captcha as shown (it's case-sensitive), then choose the company, `LOCAL_ODEX_ACCOUNT`, and Confirm Sign In. Like the real ODeX, a browser that has signed in with the User ID isn't asked for the captcha again for 30 days.
 
@@ -92,27 +101,38 @@ The page checks the form in the browser before sending anything. A failing field
 
 ### 3. Raise the security deposit: `odex_deposit_new`
 
-ODeX → Counter Process → Deposit and Refund → New Deposit. Once per house B/L: ODeX takes a deposit per B/L.
+The team's guide "Security deposit number 1", once CMA CGM's Security Receipt is in:
+
+1. On the services page, choose Counter Process's location (NCR for ICD Tughlakabad) and click its arrow.
+2. Security Deposit → Security Deposit & Refund, then NEW - DEPOSIT.
+3. Fill in the requestor, payment and refund details, and attach the NOC.
+4. SUBMIT. Then search the BL No. and open the request with View, for its Request No.
+
+It runs once per house B/L: ODeX takes a deposit per B/L.
 
 | Page field | Filled with |
 |---|---|
-| Liner | Fixed details: Liner on ODeX (`odex_liner`) |
-| B/L number | The house B/L |
-| Deposit amount | Job: Security deposit (`deposit_amount`) |
-| Payment mode | Always RTGS/NEFT |
-| UTR / instrument no. | Job: UTR for the security deposit (`deposit_utr`) |
-| Payment date | Job: Date of transfer (`payment_date`) |
-| Bank name | Fixed details: Bank that pays CMA CGM (`payer_bank`) |
-| Refund to | Job: Deposit refunded to (`deposit_refund_to`, default Third Party) |
-| Third party name | Job: CHA (`cha`), for a refund to a third party |
-| Consignee's NOC | For a refund to a third party: Hexalog's no-objection to refunding the CHA. The app writes it from the job's fields (`noc_refund` in `app/letters.py`, after `NOC (5).docx`), stamped with the Hexalog stamp |
-| Security deposit receipt | The Security Receipt in the job's DO folder |
+| Counter Process's location (services page) | Job: ODeX location (`odex_location`, default NCR) |
+| Line | Fixed details: Liner on ODeX (`odex_liner`, CMA CGM): the option that starts with it |
+| BL No. | The house B/L |
+| MBL No. | Job: Master B/L no. (`mbl_no`) |
+| FPOD, Office Location, Consignee Name, Container Details | Filled in by ODeX from the BL. The local ODeX has no IGM: it fills in its office's place of delivery, and "As per IGM" for the consignee and the containers |
+| Mode Of Payment | Non-ODeX-RTGS, every time: Finance pays CMA CGM by RTGS |
+| Refund To-Name | ThirdParty, and the CHA as ODeX lists it: fixed details, Deposit refunded to (`refund_party`). ODeX fills in the Refund To PAN. A job refunded to the consignee doesn't start: the fixed details hold only the CHA's account |
+| Attachment Details | "NOC (on the letter head of MBL consignee)": Hexalog's no-objection to refunding the CHA. The app writes it from the job's fields (`noc_refund` in `app/letters.py`, after `NOC (5).docx`), stamped with the Hexalog stamp |
+| Bank | Fixed details: Bank that pays CMA CGM (`payer_bank`) |
+| Amount | Job: Security deposit (`deposit_amount`), as 40000.00 |
+| Bank Payment Reference | Job: UTR for the security deposit (`deposit_utr`) |
+| Payment date | Job: Date of transfer (`payment_date`), as DD-MM-YYYY |
+| CMA iReceipt No | Job: CMA iReceipt no. (`security_receipt_no`). The mail ingest reads it off CMA CGM's Security Receipt |
+| Beneficiary Name (as per bank records) | Fixed details: Deposit refunded to (`refund_party`) |
+| Bank Name, Branch Name, A/C Type, A/C No., IFSC Code | Fixed details: the refund account (`refund_bank`, `refund_branch`, `refund_account_type`, `refund_account_no`, `refund_ifsc`). Only the type has a default, Current |
 
-It reads back the deposit reference (`odex_deposit_ref`).
+It reads back the Request No. and the status from the request's View (`odex_deposit_ref`, `odex_deposit_status`). The guide's screenshots end above the form's buttons, so the local page puts SUBMIT and BACK under the picture.
 
 ### 4. Check the deposit, download its slip: `odex_deposit_status`
 
-ODeX → Counter Process → Deposit and Refund. Once per house B/L. This step only reads, so it's safe to run again.
+Counter Process → Security Deposit & Refund, the request searched by its BL No. Once per house B/L. This step only reads, so it's safe to run again.
 
 It reads back the deposit's reference and status (`deposit_ref`, `deposit_status`). Once CMA CGM has approved the deposit, it also downloads the Security Deposit Acknowledgement Slip, the folder's Security-cum-ODEX Receipt. The slip goes to `data/files/<job>/portal/<HBL>-security-deposit-slip.pdf` (`downloaded_file_path`).
 
@@ -185,7 +205,7 @@ The params, the data behind them and the workflows stay the same.
 
 What's still missing for the real SOPs:
 
-1. **The real ODeX pages' HTML.** The guides' screenshots show what the invoice and DO request steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had. The deposit still needs screenshots or a walk-through.
+1. **The real ODeX pages' HTML.** The guides' screenshots show what the invoice, deposit and DO request steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had.
 2. **ODeX login.** The real login page is known: User ID, password and a picture captcha (no OTP), then the company, then Confirm Sign In. The local ODeX copies it. Still needed:
    - A test login.
    - Someone to type the captcha: a step where the run waits for a person. ODeX doesn't ask a browser that has signed in with that User ID in the last 30 days, but the agent starts a fresh browser each run, so it is always asked.
@@ -195,7 +215,7 @@ What's still missing for the real SOPs:
 3. **A first real RTGS confirmation.** The RTGS SOP has the real page's selectors but has only run on the local page. Its first real run should be with a real payment, watched. Also: the real page's answer when it turns a request down on the server (a UTR entered twice, say) hasn't been seen.
 4. **Several house B/Ls under one MBL.** Is the deposit ₹40,000 for each house B/L, or one ₹40,000 split across them? On ODeX the app enters the full amount for each house B/L for now. On the RTGS page it confirms one deposit against the MBL, as in the screenshot.
 5. **The JSR NOC.** Confirm that `NOC (5).docx` is the "JSR NOC" the SOP sheet asks for on the deposit. It is Hexalog's no-objection to refunding JSR, and the app now writes it.
-6. **The UTR on the deposit.** The sample deposit slip shows UTR …4389, the invoice payment's UTR, not …8497 from the deposit's own receipt. Which one does ODeX expect?
+6. **The UTR and the receipt on the deposit.** The app enters the deposit's own UTR as the Bank Payment Reference, and the Security Receipt's number as the CMA iReceipt No. But the sample deposit slip and the guide's screenshot both show the invoice payment's UTR. Which UTR, and which receipt's number, does ODeX expect?
 7. **The mailbox.** Which of the Email(s) on the RTGS page the Graph subscription watches, so the receipts reach the app. It should be kept apart from python-brain's `datahub@hexalog.in` pipeline.
 8. **Sample emails.** The liner's invoice-verified email, Finance's UTR reply, CMA CGM's receipt emails and the eDO email, to write their extractors.
 9. **The DO request.** The guide "DO final steps corrected" settles most of it: the combined folder goes in one Add Row, as "All document in a single pdf". Still open:
@@ -204,3 +224,4 @@ What's still missing for the real SOPs:
    - Are the factory address and PIN always the guide's (Hexalog's), or the consignee's factory for each job?
    - The drop-downs' other options (only General, Factory and Yes are seen), what ODeX shows after SAVE, and where it offers the eDO.
 10. **The refund.** Is the refund request (Counter Process → Request Refund) in scope? It isn't built.
+11. **The rest of the deposit form.** The guide leaves the form's Status empty, ends above its buttons, and shows only its own choice in Mode Of Payment, Document Name and Refund To-Name. The local page guesses the other options. The guide is "number 1", for the first house B/L: does the second one differ?

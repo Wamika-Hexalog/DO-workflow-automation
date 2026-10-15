@@ -41,9 +41,11 @@ reformats files you did not change.
 | The Outlook connector (copied from python-brain) | `backend/app/connectors/` |
 | Mail: the code parser, the content recognizers, the database jobs | `backend/app/email_code.py`, `email_infer.py`, `email_ingest.py` |
 | The Graph webhook | `backend/app/webhooks.py` |
+| The process steps by number (1 is the pre-alert, 12 the eDO), as the team names them | `PROCESS.md` |
+| The portal steps around the DO request: what each needs and leaves, their tasks | `backend/app/process.py`, `backend/app/workflows/invoice.py`, `payment.py`, `edo.py` |
 | The browser agent (copied from python-brain) | `backend/app/agents/browser/` |
 | Browser SOPs (YAML) | `backend/sops/` |
-| The local ODeX and CMA RTGS pages | `backend/local_portals/` |
+| The local ODeX and CMA RTGS pages, and the control panel that plays CMA CGM and Finance | `backend/local_portals/` (its mail to the app: `mail.py`) |
 | Tests | `backend/tests/` |
 | Settings | `backend/app/config.py`, read from `backend/.env` (see `backend/.env.example`) |
 

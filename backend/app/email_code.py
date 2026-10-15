@@ -10,6 +10,7 @@ A mail may carry several lines, one per fact.
 from __future__ import annotations
 
 import html
+from datetime import date
 import re
 from dataclasses import dataclass
 
@@ -54,12 +55,14 @@ def parse_injected_codes(body: str, *, prefix: str, subject: str = "") -> list[I
 
 def fields_for(code: InjectedCode) -> dict[str, str]:
     """Shipment fields a code fills when they are empty: utr -> payment_utr, utr with
-    "deposit:<utr>" -> deposit_utr, invoice -> do_invoice_no."""
+    "deposit:<utr>" -> deposit_utr, invoice -> do_invoice_no. A UTR also gives the date
+    of transfer: the day it comes in, until someone types the real one."""
     if not code.arg:
         return {}
     if code.stage == "utr":
         kind, _, utr = code.arg.partition(":")
-        return {"deposit_utr": utr} if kind == "deposit" and utr else {"payment_utr": code.arg}
+        found = {"deposit_utr": utr} if kind == "deposit" and utr else {"payment_utr": code.arg}
+        return {**found, "payment_date": date.today().isoformat()}
     if code.stage == "invoice":
         return {"do_invoice_no": code.arg}
     return {}

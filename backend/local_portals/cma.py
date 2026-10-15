@@ -4,19 +4,24 @@ deposit and issuing the eDO. For real each takes hours or days; here it takes a
 click, or a few seconds with autoplay on.
 
 Each answer moves one waiting request on and writes the documents CMA CGM would
-send. What would arrive by email goes in the outbox on the control panel:
-nothing is sent anywhere.
+send. What would arrive by email goes in the outbox on the control panel, written
+like the real mail (ODeX's invoices received, the RTGS confirmation, the security
+slip); where no real mail has been seen (the eDO issued) the mail carries a code line.
+local_portals/mail.py hands the outbox to the app when the demo asks for it.
 """
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import documents
+from pypdf import PdfReader
+
+from . import documents, mail, settings
 from .settings import ACCOUNT_NAME
 from .store import Store, next_number, now
 
@@ -36,7 +41,7 @@ EDO_VALID_DAYS = 14
 WAITING = {
     "invoice_requests": "Pending",
     "rtgs_requests": "Received",
-    "deposits": "Pending Approval",
+    "deposits": "Deposit Requested",
     "do_requests": "Submitted",
 }
 
@@ -54,36 +59,94 @@ def _waiting(data: dict[str, Any], kind: str, item_id: str) -> dict[str, Any]:
     raise NotWaiting(f"There is no request {item_id}.")
 
 
-def _email(data: dict[str, Any], to: str, subject: str, body: str, attachments: list[str]) -> None:
-    data["outbox"].insert(
-        0, {"id": secrets.token_hex(6), "at": now(), "to": to, "subject": subject, "body": body, "attachments": attachments}
-    )
+DO_MAILBOX = "the DO mailbox"
+ODEX_ACCOUNT = "the ODeX account's email"
+
+
+def _email(
+    data: dict[str, Any], to: str, subject: str, body: str, attachments: list[str],
+    codes: list[tuple[str, str, str]] = (),
+) -> None:
+    """``codes``: (stage, B/L, argument) for the code lines the app reads (app/email_code.py)."""
+    data["outbox"].insert(0, {
+        "id": secrets.token_hex(6), "at": now(), "to": to, "subject": subject, "body": body,
+        "attachments": attachments, "codes": [list(code) for code in codes],
+    })
+
+
+# CMA CGM's import invoice, as its PDF reads: the number ("INIUPC..."; the carrier number
+# looks alike), the total and the date.
+_INVOICE_NO = re.compile(r"(?<!Carrier No\. )\b(IN[A-Z]{2,6}\d{6,10})\b")
+_INVOICE_TOTAL = re.compile(r"Total Amount:\s*([\d,]+\.\d{2})")
+_INVOICE_DATE = re.compile(r"\bDate:\s*(\d{2}-[A-Za-z]{3}-\d{4})\b")
+
+
+def _real_invoice(bl_no: str) -> tuple[str, float, str, str, bytes] | None:
+    """The liner's real invoice for the B/L, when the demo has one: its number, total,
+    date, file name and PDF."""
+    folder = settings.real_invoices_dir()
+    if folder is None or not folder.is_dir():
+        return None
+    for path in sorted(folder.glob("*.pdf")):
+        try:
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+        except Exception:  # noqa: BLE001 - an unreadable PDF just isn't the invoice
+            continue
+        number, total = _INVOICE_NO.search(text), _INVOICE_TOTAL.search(text)
+        if bl_no not in text or "INVOICE" not in text.upper() or not number or not total:
+            continue
+        on = _INVOICE_DATE.search(text)
+        day = datetime.strptime(on.group(1), "%d-%b-%Y").date() if on else date.today()
+        return number.group(1), float(total.group(1).replace(",", "")), day.isoformat(), path.name, path.read_bytes()
+    return None
 
 
 def verify_invoice(store: Store, item_id: str) -> str:
     """The liner checks the invoice request and releases its DO invoice on ODeX,
-    where ops download it (BL Status → the request → its attachment)."""
+    where ops download it (BL Status → the request → its attachment). A demo shipment
+    with its real invoice (LOCAL_ODEX_INVOICES_DIR) gets that one."""
     with store.change() as data:
         request = _waiting(data, "invoice_requests", item_id)
-        count = max(1, len(request.get("containers") or []))
-        lines = [
-            (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
-            if basis == "per container"
-            else (text, basis, rate)
-            for text, basis, rate in TARIFF
-        ]
-        subtotal = round(sum(amount for *_, amount in lines), 2)
-        gst = round(subtotal * GST_RATE, 2)
-        total = round(subtotal + gst, 2)
-        invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
-        pdf = documents.invoice_pdf(
-            invoice_no=invoice_no, on=date.today().isoformat(), liner=request["liner"], bl_no=request["bl_no"],
-            containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst, total=total,
-        )
-        file_id = store.add_file(data, pdf, f"{invoice_no}.pdf")
+        real = _real_invoice(request["bl_no"])
+        if real is not None:
+            invoice_no, total, invoice_date, name, pdf = real
+        else:
+            count = max(1, len(request.get("containers") or []))
+            lines = [
+                (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
+                if basis == "per container"
+                else (text, basis, rate)
+                for text, basis, rate in TARIFF
+            ]
+            subtotal = round(sum(amount for *_, amount in lines), 2)
+            gst = round(subtotal * GST_RATE, 2)
+            total = round(subtotal + gst, 2)
+            invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
+            invoice_date, name = date.today().isoformat(), f"{invoice_no}.pdf"
+            pdf = documents.invoice_pdf(
+                invoice_no=invoice_no, on=invoice_date, liner=request["liner"], bl_no=request["bl_no"],
+                containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst,
+                total=total,
+            )
+        file_id = store.add_file(data, pdf, name)
         request.update(
             status="Released", invoice_no=invoice_no, amount=total, invoice_file=file_id,
-            invoice_date=date.today().isoformat(), answered_at=now(),
+            invoice_date=invoice_date, answered_at=now(),
+        )
+        # As ODeX's notice reads (app/email_infer.py knows it). The bill-to party is the
+        # consignee manifested on the MBL.
+        _email(
+            data, ODEX_ACCOUNT, f"ODeX: Invoices Received for {request['bl_no']}",
+            "Dear Sir/Madam,\n\n"
+            f"Invoices released for {request['bl_no']},\n"
+            f"Type Of Delivery:   {request.get('delivery_type', '')}\n"
+            "IGM No.:\nIGM Date:\nCFS Name:\n\n"
+            "Invoice No.\tInvoice Type\tTotal Invoice Amt.\tBill to Party\n"
+            f"{invoice_no}\tNON FREIGHT\t{total:.2f}\tHEXALOG GLOBAL SUPPLY CHAINS PVT LTD\n\n"
+            "Note:This is a system generated e-mail. Please do NOT reply to it.\n\n"
+            "Above notification on behalf of CMA CGM AGENCIES INDIA PRIVATE LIMITED\n\n"
+            "Regards,\nODeX Support Team\n",
+            [],
         )
     return f"Released {request['ref']}: invoice {invoice_no} for Rs. {documents.money(total)}, on ODeX for BL {request['bl_no']}."
 
@@ -106,11 +169,23 @@ def send_receipts(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"{kind} {receipt_no}.pdf")
         request.update(status="Receipt Sent", receipts=[file_id], answered_at=now())
+        # As CMA CGM's eBusiness mail reads (app/email_infer.py knows it).
+        row = rows[0] if rows else {"invoice_no": "", "bl_no": request["bl_no"], "amount": request["amount"]}
         _email(
             data,
             ", ".join(request["emails"]),
-            f"{kind} {receipt_no} for B/L {request['bl_no']}",
-            f"We have received your payment, UTR {request['utr']}, for B/L {request['bl_no']}. The receipt is attached.",
+            f"RTGS/NEFT Confirmation Request Processed - {request['ref']}",
+            "CMA CGM eBusiness\n"
+            f"RTGS/NEFT Confirmation Request Processed - {request['ref']}\n"
+            "Status:  Request Confirmed\n"
+            "Request Details\n"
+            f"Request Id: {request['ref']}\n"
+            f"UTR: {request['utr']}\n"
+            f"Date of Transfer: {date.fromisoformat(request['transfer_date']):%d-%b-%Y}\n"
+            f"Amount Transferred: INR {documents.money(request['amount'])}\n"
+            "Invoice Details\n"
+            "Invoice Ref. BL Number I/E Amount\n"
+            f"{row['invoice_no'] or '-'}\t{row['bl_no']}\tI\t{documents.money(row['amount'])}\n",
             [file_id],
         )
     return f"Emailed {kind} {receipt_no} for {request['ref']} to {', '.join(request['emails'])}."
@@ -126,6 +201,15 @@ def approve_deposit(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"Security deposit slip {deposit['bl_no']}.pdf")
         deposit.update(status="Deposit Approved", slip_file=file_id, answered_at=now())
+        # As ODeX's mail reads (app/email_infer.py knows it).
+        _email(
+            data, DO_MAILBOX, f"ODeX: Security slip - {deposit['ref']}",
+            "Please find the attached security slip issued by CMA CGM AGENCIES INDIA PRIVATE LIMITED\n"
+            f"BL No. - {deposit['bl_no']}\n"
+            f"Instrument No. - {deposit['utr']}\n"
+            "Status - Deposit Approved\n",
+            [file_id],
+        )
     return f"Approved {deposit['ref']} for B/L {deposit['bl_no']}. ODeX now offers its slip."
 
 
@@ -143,6 +227,12 @@ def issue_edo(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"eDO {edo_no} {request['bl_no']}.pdf")
         request.update(status="DO Issued", edo_no=edo_no, edo_file=file_id, answered_at=now())
+        _email(
+            data, DO_MAILBOX, f"eDO {edo_no} issued for BL {request['bl_no']}",
+            f"The delivery order {edo_no} for BL {request['bl_no']} is issued. It is attached, and on ODeX "
+            "under DO Request.",
+            [file_id], codes=[("edo", request["bl_no"], "")],
+        )
     return f"Issued {edo_no} for {request['ref']} (B/L {request['bl_no']}). ODeX now offers the eDO."
 
 
@@ -187,7 +277,8 @@ class Autoplay:
                 logger.exception("Autoplay could not answer a request")
 
     def tick(self, moment: datetime | None = None) -> list[str]:
-        """Answers every request that has waited long enough. Returns what it did."""
+        """Answers every request, and every payment mail from the app (as Finance), that
+        has waited long enough, then hands the new mail to the app. Returns what it did."""
         moment = moment or datetime.now()
         with self.store.read() as data:
             if not data["autoplay"]["on"]:
@@ -199,10 +290,16 @@ class Autoplay:
                 for item in data[kind]
                 if item["status"] == waiting and datetime.fromisoformat(item["created_at"]) + delay <= moment
             ]
+        to_pay = [
+            m["id"] for m in mail.finance_mails(self.store)
+            if not m["reply"] and datetime.fromtimestamp(m["at"]) + delay <= moment
+        ]
         done = []
         for kind, item_id in due:
             try:
                 done.append(ANSWERS[kind](self.store, item_id))
             except NotWaiting:
                 pass  # answered from the control panel in the meantime
+        done += [mail.pay(self.store, message_id) for message_id in to_pay]
+        mail.deliver_pending(self.store)
         return done

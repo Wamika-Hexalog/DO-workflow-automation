@@ -20,10 +20,29 @@ STATUSES = (PENDING, AWAITING_APPROVAL, COMPLETED, FAILED)
 
 FOLDER_REVIEW = "folder_review"
 ODEX_DO_REQUEST = "odex_do_request"
+ODEX_INVOICE_REQUEST = "odex_invoice_request"
+ODEX_INVOICE_COLLECT = "odex_invoice_collect"
+FINANCE_MAIL = "finance_mail"
+CMA_RTGS_PAYMENT = "cma_rtgs_payment"
+CMA_RTGS_DEPOSIT = "cma_rtgs_deposit"
+ODEX_DEPOSIT = "odex_deposit"
+ODEX_EDO = "odex_edo"
+# In the order the process reaches them.
 TITLES = {
+    ODEX_INVOICE_REQUEST: "Request the DO invoice on ODeX",
+    ODEX_INVOICE_COLLECT: "Collect the DO invoice from ODeX",
+    FINANCE_MAIL: "Send the DO invoice to Finance",
+    CMA_RTGS_PAYMENT: "Confirm the shipment payment on CMA CGM's RTGS page",
+    CMA_RTGS_DEPOSIT: "Confirm the security deposit on CMA CGM's RTGS page",
+    ODEX_DEPOSIT: "Raise the security deposit on ODeX",
     FOLDER_REVIEW: "Review and build the DO folder",
     ODEX_DO_REQUEST: "Raise the DO request on ODeX",
+    ODEX_EDO: "Collect the eDO from ODeX",
 }
+# Ops approve these before the agent runs them: they confirm or move money.
+APPROVED_BY_OPS = (CMA_RTGS_PAYMENT, CMA_RTGS_DEPOSIT, ODEX_DEPOSIT)
+# The agent runs these by itself; ops start one again after it failed.
+AUTOMATIC = (ODEX_INVOICE_REQUEST, ODEX_INVOICE_COLLECT, FINANCE_MAIL, ODEX_EDO)
 
 
 class TaskConflict(Exception):
@@ -102,6 +121,17 @@ def fail(session: Session, shipment_id: str, task_key: str, note: str, result: d
     task.note = note
     if result is not None:
         task.result = result
+
+
+def done(session: Session, shipment_id: str, task_key: str, note: str, result: dict, by: str) -> None:
+    """The work behind the task is done, whether ops or the agent did it."""
+    task = ensure(session, shipment_id, task_key)
+    task.status = COMPLETED
+    task.note = note
+    task.result = result
+    if task.completed_at is None:
+        task.completed_at = utcnow()
+        task.completed_by = by
 
 
 def record_result(session: Session, shipment_id: str, task_key: str, note: str, result: dict) -> None:

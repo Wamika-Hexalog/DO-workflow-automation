@@ -37,10 +37,14 @@ INVOICE_FORM = dict(
 SHIPMENT_ROW = [False, "INV-DEMO-0431", MBL, 54720.68, None]
 DEPOSIT_ROW = [True, None, MBL, 40000, None]
 SPARE_ROW = [False, None, None, None, None]
+# The security deposit, as the team's third guide fills it ("Security deposit number 1").
 DEPOSIT_FORM = dict(
-    liner="CMA CGM", blNo=HBL, amount="40000", paymentMode="RTGS/NEFT", utrNo="DEMOUTR0431DEP",
-    paymentDate="2026-10-01", bankName="ICICI BANK", refundTo="Third Party",
-    thirdPartyName="JAY SHRI RAM DARBAR LOGISTICS (P) LTD",
+    line="CMA CGM AGENCIES INDIA PRIVATE LIMITED", bl_no=HBL, mbl_no=MBL, mode_of_payment="Non-ODeX-RTGS",
+    refund_to="ThirdParty", refund_to_name="JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED",
+    attachment_name="NOC (on the letter head of MBL consignee)", bank="ICICI BANK", amount="40000.00",
+    bank_payment_reference="DEMOUTR0431DEP", payment_date="01-10-2026", cma_ireceipt_no="RCPT-DEMO-00002",
+    beneficiary_name="JAY SHRI RAMDARBAR LOGISTICS PRIVATE LIMITED", refund_bank_name="DEMO BANK",
+    branch_name="DEMO BRANCH", ac_type="Current", ac_no="000000000001", ifsc_code="DEMO0000001",
 )
 # The DO request, as the team's second guide fills it ("DO final steps corrected").
 DO_REQUEST_FORM = dict(
@@ -66,10 +70,17 @@ def log_in(client: TestClient, user: str = "hexalog-demo", password: str = "loca
     return page
 
 
-@pytest.fixture()
-def web(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True)
+def demo_login(monkeypatch):
+    """The local ODeX takes its published demo login here, and has no real invoices,
+    whatever backend/.env says."""
     monkeypatch.delenv("LOCAL_ODEX_USERNAME", raising=False)
     monkeypatch.delenv("LOCAL_ODEX_PASSWORD", raising=False)
+    monkeypatch.delenv("LOCAL_ODEX_INVOICES_DIR", raising=False)
+
+
+@pytest.fixture()
+def web(tmp_path):
     with TestClient(create_app(tmp_path / "portals", autoplay=False, screens_dir=tmp_path / "no-screens")) as client:
         log_in(client)
         yield client
@@ -174,6 +185,22 @@ def test_odex_signs_in_with_the_password_then_the_company(tmp_path):
         assert away.headers["location"] == "/odex/login/company?next=/odex/home"
 
 
+def test_a_demo_shipment_gets_its_real_invoice_from_the_local_odex(web, tmp_path, monkeypatch):
+    # Protects: the local ODeX releases the liner's real invoice for its B/L. Fails if the demo invoice goes out instead, or the number, total or date is misread.
+    real = tmp_path / "real-invoices"
+    real.mkdir()
+    (real / "UPC00000001.pdf").write_bytes(make_pdf(
+        f"Date: 01-OCT-2026 INIUPC00000001 ORIGINAL* IMPORT INVOICE Bill of Lading: {MBL} "
+        "INRTotal Amount: 54,720.68 Carrier No. INCMA0000001"
+    ))
+    monkeypatch.setenv("LOCAL_ODEX_INVOICES_DIR", str(real))
+    ask_invoice(web)
+    cma.verify_invoice(web.app.state.store, items(web, "invoice_requests")[0]["id"])
+    released = items(web, "invoice_requests")[0]
+    assert (released["invoice_no"], released["amount"], released["invoice_date"]) == ("INIUPC00000001", 54720.68, "2026-10-01")
+    assert web.app.state.store.file(released["invoice_file"])[1].read_bytes() == (real / "UPC00000001.pdf").read_bytes()
+
+
 def test_the_odex_guide_from_invoice_request_to_invoice(web):
     # Guide, steps 1-4: the services, ePayment for the location, Requests → Liner Requests.
     services = web.get("/odex/home").text
@@ -202,7 +229,12 @@ def test_the_odex_guide_from_invoice_request_to_invoice(web):
     request = items(web, "invoice_requests")[0]
     said = cma.verify_invoice(web.app.state.store, request["id"])
     assert "Rs. 54,720.68" in said  # one container, as on the sample DO receipt
-    assert items(web, "invoice_requests")[0]["status"] == "Released" and items(web, "outbox") == []
+    released = items(web, "invoice_requests")[0]
+    assert released["status"] == "Released"
+    # ODeX's notice says so, as the real one reads.
+    notice = items(web, "outbox")[0]
+    assert notice["subject"] == f"ODeX: Invoices Received for {MBL}" and notice["codes"] == []
+    assert f"Invoices released for {MBL}," in notice["body"] and released["invoice_no"] in notice["body"]
     with pytest.raises(cma.NotWaiting):
         cma.verify_invoice(web.app.state.store, request["id"])
 
@@ -289,25 +321,55 @@ def test_the_rtgs_page_checks_the_payment_and_its_rows(web):
     assert "UTR Number DEMOUTR0431INV is already submitted" in problems()
 
 
-def test_a_deposit_needs_its_receipt_and_for_a_third_party_the_noc(web):
-    no_noc = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"receiptFile": pdf()}))
-    assert no_noc["status"] == "rejected" and "Attach the consignee's NOC." in no_noc["message"]
-    not_pdf = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"receiptFile": ("r.txt", b"hello", "text/plain"), "nocFile": pdf()}))
-    assert "The security deposit receipt must be a PDF." in not_pdf["message"]
-    # Nothing was kept from the turned-down forms.
+def test_the_deposit_follows_the_teams_third_guide(web):
+    # Protects: the deposit pages the deposit SOP drives, and what ODeX keeps of a request. Fails if a step's
+    # element, the NOC check, the BL search or the request's View changes.
+    # Step 1: Counter Process for the place of delivery, then Security Deposit → Security Deposit & Refund.
+    services = web.get("/odex/home").text
+    assert 'id="counter-location"' in services and 'id="counter-go"' in services
+    counter = web.get("/odex/counter-process?location=NCR").text
+    assert 'id="menu-security-deposit"' in counter and f'id="menu-deposit-refund" href="{DEPOSITS}"' in counter
+    # Step 2: Search Deposit/Refund Request.
+    listing = web.get(DEPOSITS).text
+    for element in ("search-bl", "search-status", "search-go", "view", "new-deposit"):
+        assert f'id="{element}"' in listing, element
+    # Step 3: ODeX fills in the BL's details from the IGM. The local one knows only its office's.
+    details = web.get(f"{DEPOSITS}/bl-details?bl_no={HBL}&mbl_no={MBL}").json()
+    assert (details["known"], details["fpod"], details["office_location"]) == (True, "INTKD6-TUGHLAKABAD", "NCR")
+    form = web.get(f"{DEPOSITS}/new").text
+    for field in ("line", "bl-no", "mbl-no", "mode-of-payment", "refund-to", "refund-to-name", "refund-to-pan",
+                  "attachment-name", "attachment-file", "bank", "amount", "bank-payment-reference", "payment-date",
+                  "cma-ireceipt-no", "beneficiary-name", "refund-bank-name", "branch-name", "ac-type", "ac-no",
+                  "ifsc-code", "submit-deposit"):
+        assert f'id="{field}"' in form, field
+
+    # What the page checks: a refund to a third party needs the NOC, and the payment can't be dated ahead.
+    no_noc = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM))
+    assert no_noc["status"] == "rejected" and "Attach the NOC." in no_noc["message"]
+    ahead = outcome(web.post(f"{DEPOSITS}/new", data={**DEPOSIT_FORM, "payment_date": "01-10-2999"}, files={"attachment_file": pdf()}))
+    assert "Enter the Payment date as dd-mm-yyyy, not in the future." in ahead["message"]
     assert items(web, "deposits") == []
 
-    to_consignee = {**DEPOSIT_FORM, "refundTo": "Consignee", "thirdPartyName": ""}
-    accepted = outcome(web.post(f"{DEPOSITS}/new", data=to_consignee, files={"receiptFile": pdf()}))
+    # Step 4: SUBMIT. The Request No. shows on the request, found by its BL No. and opened with View.
+    accepted = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"attachment_file": pdf("NOC.pdf")}))
     assert accepted["status"] == "accepted" and accepted["reference"].startswith("SD")
-    again = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"receiptFile": pdf(), "nocFile": pdf()}))
-    assert again["status"] == "rejected" and f"already registered for B/L {HBL}" in again["message"]
-
+    found = web.get(DEPOSITS, params={"bl_no": HBL}).text
+    assert f'data-bl="{HBL}" data-ref="{accepted["reference"]}" data-status="Deposit Requested"' in found
     deposit = items(web, "deposits")[0]
+    view = web.get(f"{DEPOSITS}/{deposit['id']}").text
+    assert re.search(r'id="request-no"[^>]*>([^<]*)<', view)[1] == accepted["reference"]
+    assert re.search(r'id="request-status"[^>]*>([^<]*)<', view)[1] == "Deposit Requested"
+    assert (deposit["utr"], deposit["payment_date"], deposit["ireceipt_no"]) == ("DEMOUTR0431DEP", "2026-10-01", "RCPT-DEMO-00002")
+    assert deposit["refund_pan"] and deposit["refund_account"]["ifsc"] == "DEMO0000001"
+    assert [(a["doc_type"], a["name"]) for a in deposit["attachments"]] == [("NOC (on the letter head of MBL consignee)", "NOC.pdf")]
+    again = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"attachment_file": pdf()}))
+    assert again["status"] == "rejected" and f"already there: {deposit['ref']}" in again["message"]
+
+    # CMA CGM approves it: the list then offers its slip.
     assert 'class="download-slip"' not in web.get(DEPOSITS).text
     cma.approve_deposit(web.app.state.store, deposit["id"])
     page = web.get(DEPOSITS).text
-    assert f'data-bl="{HBL}" data-status="Deposit Approved"' in page
+    assert f'data-bl="{HBL}" data-ref="{deposit["ref"]}" data-status="Deposit Approved"' in page
     link = re.search(r'class="download-slip" href="([^"]+)"', page)[1]
     slip = web.get(link)
     # An attachment, so a browser saves it rather than opening its PDF viewer.
@@ -316,12 +378,12 @@ def test_a_deposit_needs_its_receipt_and_for_a_third_party_the_noc(web):
 
 
 def test_a_turned_down_deposit_can_be_raised_again(web):
-    web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"receiptFile": pdf(), "nocFile": pdf()})
+    web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"attachment_file": pdf()})
     deposit = items(web, "deposits")[0]
     response = web.post(f"/control/reject/deposits/{deposit['id']}", data={"reason": "Receipt unreadable"})
     assert "Receipt unreadable" in unescape(response.text)
     assert items(web, "deposits")[0]["status"] == "Rejected"
-    retry = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"receiptFile": pdf(), "nocFile": pdf()}))
+    retry = outcome(web.post(f"{DEPOSITS}/new", data=DEPOSIT_FORM, files={"attachment_file": pdf()}))
     assert retry["status"] == "accepted"
 
 

@@ -485,16 +485,33 @@ def list_tasks(shipment_id: str, session: SessionDep) -> list[TaskOut]:
 def complete_task(
     shipment_id: str, task_key: str, body: TaskCompleteIn, session: SessionDep, rt: RuntimeDep
 ) -> ShipmentOut:
-    """Ops approve the DO request on ODeX (or confirm they raised it by hand)."""
+    """Ops approve a step: the DO request on ODeX (or confirm they raised it by hand), or
+    a payment step. A step the agent runs by itself can only be started again after it
+    failed."""
     if task_key == tasks.FOLDER_REVIEW:
         raise HTTPException(409, "The folder review is confirmed by building the folder.")
-    if task_key != tasks.ODEX_DO_REQUEST:
+    if task_key not in tasks.TITLES:
         raise HTTPException(404, "There is no such task.")
     shipment = _shipment(session, shipment_id)
     task = tasks.get(session, shipment.id, task_key)
+    by = body.by or "ops"
+    title = tasks.TITLES[task_key]
+    if task_key in tasks.AUTOMATIC:
+        if task is None or task.status != tasks.FAILED:
+            raise HTTPException(409, f"{title} runs by itself when its mail arrives. It can be started again only after it failed.")
+        _complete_and_start(rt, session, shipment, task_key, by, allowed=(tasks.FAILED,))
+        service.log(session, shipment.id, "task", f"{title}: {by} asked the browser agent to try again.")
+        session.commit()
+        return _one(rt, session, shipment)
+    if task_key in tasks.APPROVED_BY_OPS:
+        if task is None or task.status == tasks.PENDING:
+            raise HTTPException(409, f"Nothing to approve yet. {task.note if task else ''}".strip())
+        _complete_and_start(rt, session, shipment, task_key, by, allowed=(tasks.AWAITING_APPROVAL, tasks.FAILED))
+        service.log(session, shipment.id, "task", f"{title}: approved by {by}. The browser agent is on it.")
+        session.commit()
+        return _one(rt, session, shipment)
     if task is None or task.status == tasks.PENDING:
         raise HTTPException(409, "Nothing to approve yet: build the DO folder first.")
-    by = body.by or "ops"
     _complete_and_start(rt, session, shipment, task_key, by, allowed=(tasks.AWAITING_APPROVAL, tasks.FAILED))
     if rt.settings.odex_automated:
         service.log(session, shipment.id, "task", f"DO request on ODeX approved by {by}. The browser agent is raising it.")
