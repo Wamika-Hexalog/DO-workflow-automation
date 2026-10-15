@@ -24,6 +24,8 @@ API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 _TRY_NEXT = (404, 429, 500, 503)
 # Gemini's busy spells are short: after a pause, each model is tried once more.
 ROUNDS, PAUSE_SECONDS = 2, 3
+# A busy model can hold a request for half a minute before it answers 503: the next one reads instead.
+MODEL_SECONDS = 10
 BODY_CHARS = 12000  # a long forwarded thread is cut here
 ATTACHMENT_CHARS = 3000  # the first page of an attachment is enough
 
@@ -153,7 +155,7 @@ async def _ask(settings: Settings, prompt: str) -> tuple[dict[str, Any], str]:
     }
     models = [m.strip() for m in settings.mail_ai_model.split(",") if m.strip()]
     tried = []
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=MODEL_SECONDS) as client:
         for model in models * ROUNDS:
             if tried and model == models[0]:
                 await asyncio.sleep(PAUSE_SECONDS)
