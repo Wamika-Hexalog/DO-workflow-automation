@@ -287,7 +287,7 @@ def test_the_process_runs_from_the_mails(process_app, portals):
     assert (values["do_invoice_no"], float(values["do_invoice_amount"])) == (invoice["invoice_no"], invoice["amount"])
     assert tasks_of(api, s)["finance_mail"]["status"] == "completed"
     [payment_mail] = mail.finance_mails(portals.store)
-    assert payment_mail["to"] == "finance@example.com" and invoice["invoice_no"] in payment_mail["subject"]
+    assert payment_mail["to"] == "finance@example.com" and payment_mail["subject"].startswith(f"{s['job_no']} // {MBL} // CMA //")
 
     # Finance pays and replies with the UTRs. Both confirmations on the RTGS page wait for ops.
     mail.pay(portals.store, payment_mail["id"])

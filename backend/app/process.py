@@ -173,9 +173,10 @@ def refresh_payments_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
 
 
 def finance_mail_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
-    """Asks Finance to pay CMA CGM: the invoice and the security deposit, with the
-    invoice attached. Finance replies on the same mail with the two UTRs, which
-    app/email_infer.py reads; the marker in the subject brings the reply in."""
+    """Asks Finance to pay CMA CGM, as Customs Ops ask it ("<job> // <MBL> // CMA //"):
+    the shipping line invoice attached, and the security deposit. One line more asks
+    for the two UTRs in a shape app/email_infer.py reads; the marker at the end of
+    the subject brings the reply in."""
     with rt.sessionmaker() as session:
         shipment = service.load_shipment(session, shipment_id)
         profile = service.load_profile(session)
@@ -193,16 +194,18 @@ def finance_mail_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
         ]
         if missing:
             raise service.NotReady(f"The mail to Finance needs {', '.join(missing)} first.")
-        lines = [f"<li>DO invoice {invoice_no}: Rs. {_money(amount)}</li>"]
-        if deposit:
-            lines.append(f"<li>Security deposit: Rs. {_money(deposit)}</li>")
-        body = (
-            f"<p>Please pay CMA CGM for MBL {mbl} (job {shipment.job_no}), house bills "
-            f"{', '.join(split_list(shipment.data.get('hbl_nos'))) or '-'}:</p><ul>{''.join(lines)}</ul>"
-            "<p>The invoice is attached. Once paid, reply to this mail with the UTR of each payment, "
-            "on these lines:</p><p>Invoice UTR: <br>Deposit UTR: </p>"
+        security = (
+            f"<p>Also please arrange Security Amount of Rs. {float(deposit):,.0f}/-</p>" if deposit else ""
         )
-        subject = f"{rt.settings.mail_marker} DO invoice {invoice_no} for MBL {mbl}: please pay CMA CGM".strip()
+        body = (
+            "<p>Dear Finance team,</p>"
+            "<p>PFA Shipping line invoice</p>"
+            "<p>Kindly arrange payment &amp; share UTR Details</p>"
+            f"{security}"
+            "<p>Please share the UTRs on these lines:<br>Invoice UTR: <br>Deposit UTR: </p>"
+            "<p>Thanks &amp; Regards,<br>Customs Operations</p>"
+        )
+        subject = f"{shipment.job_no} // {mbl} // CMA // {rt.settings.mail_marker}".strip()
         return {"to": to, "subject": subject, "body_html": body, "attachments": [str(pdf)]}
 
 

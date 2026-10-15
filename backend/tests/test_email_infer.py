@@ -93,7 +93,7 @@ def test_odex_invoices_received_names_each_released_invoice_for_the_bl() -> None
 
 def test_finances_reply_gives_both_utrs_and_not_the_lines_it_quotes() -> None:
     # Protects: Finance's reply fills the invoice and deposit UTRs. Fails if a quoted empty line or words are read as a UTR.
-    subject = "Re: #DOHACK DO invoice INVDEMO000001 for MBL SHZ1234567: please pay CMA CGM"
+    subject = "Re: HXL/IMP/26-27/0001 // SHZ1234567 // CMA // #DOHACK"
     assert facts(subject, FINANCE_REPLY) == [
         ("utr", "SHZ1234567", "SBIN526000000001"),
         ("utr", "SHZ1234567", "deposit:SBIN526000000002"),

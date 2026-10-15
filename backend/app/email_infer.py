@@ -18,6 +18,7 @@ from .email_code import InjectedCode, html_to_text
 
 _RTGS_ROW = re.compile(r"(\S+)\s+([A-Z]{3}\d{7})\s+[IE]\s+([\d,]+\.\d\d)")
 _MBL = re.compile(r"\b[A-Z]{3}\d{7}\b")
+_MBL_IN = re.compile(r"\b([A-Z]{3}\d{7})\b")
 # The lines the app's payment mail asks Finance to fill (app/process.py). Left empty, as
 # in the copy quoted under a reply, they match nothing.
 # ODeX's notice that the liner released the invoices for a B/L, with one row per invoice:
@@ -78,7 +79,8 @@ def _odex_invoices(text: str) -> list[InjectedCode]:
 
 
 def _finance(text: str) -> list[InjectedCode]:
-    mbl = re.search(r"\bMBL\s+([A-Z]{3}\d{7})\b", text)
+    # The payment mail's subject names the MBL: "<job> // <MBL> // CMA //".
+    mbl = re.search(r"\bMBL\s+([A-Z]{3}\d{7})\b", text) or _MBL_IN.search(text)
     if not mbl:
         return []
     found = dict.fromkeys((kind.lower(), utr) for kind, utr in _FINANCE_UTR.findall(text))
