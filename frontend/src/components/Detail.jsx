@@ -8,6 +8,7 @@ import Progress from "./Progress.jsx";
 import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
 import History from "./History.jsx";
+import Process from "./Process.jsx";
 import Review from "./Review.jsx";
 import { Route } from "./Route.jsx";
 
@@ -169,6 +170,8 @@ export default function Detail({
         goTo={goTo}
       />
     );
+  } else if (section === "process") {
+    content = <Process shipment={shipment} onShipment={onShipmentSaved} say={say} goTo={goTo} />;
   } else if (section === "history") {
     content = <History shipment={shipment} stageNames={folder.stageNames} />;
   } else {
@@ -272,6 +275,16 @@ export default function Detail({
             warn={built && built.stale}
             state={built ? "Out of date" : ""}
             onClick={() => goTo("review")}
+          />
+          <NavItem
+            label="Process"
+            active={section === "process"}
+            warn={shipment.tasks.some((t) => t.status === "failed")}
+            state={(() => {
+              const waiting = shipment.tasks.filter((t) => t.status === "awaiting_approval").length;
+              return waiting ? `${waiting} to approve` : "";
+            })()}
+            onClick={() => goTo("process")}
           />
           <NavItem label="History" active={section === "history"} state="" onClick={() => goTo("history")} />
           <p className="nav-note">

@@ -620,3 +620,16 @@ textarea.input { min-height: 72px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Process: the steps around the DO folder, in order */
+.process { display: grid; gap: 10px; margin: 18px 0 0; padding: 0; list-style: none; }
+.step { display: grid; gap: 6px; padding: 14px 16px; border: var(--hair) solid var(--rule); border-radius: var(--radius-sm); background: var(--sheet); }
+.step.awaiting_approval { border-color: var(--accent); box-shadow: var(--shadow-lift); }
+.step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.step-title { font-weight: 600; }
+.step-note { margin: 0; color: var(--ink-2); }
+.step .btn { justify-self: start; }
+.step-status.completed { background: var(--done-soft); color: var(--brand); }
+.step-status.awaiting_approval { background: var(--marker); color: var(--marker-ink); }
+.step-status.failed { background: var(--accent); color: var(--brand-ink); }
+.step-status.pending { background: var(--tint); color: var(--ink-2); }

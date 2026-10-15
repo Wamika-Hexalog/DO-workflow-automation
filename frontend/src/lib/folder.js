@@ -15,7 +15,7 @@ export function indexFolder(raw) {
   };
 }
 
-export const SECTIONS = ["shipment", "fixed", "documents", "review", "history"];
+export const SECTIONS = ["shipment", "fixed", "documents", "review", "process", "history"];
 
 export function sectionTitle(id) {
   return {
@@ -23,6 +23,7 @@ export function sectionTitle(id) {
     fixed: "Fixed details",
     documents: "DO folder",
     review: "Review and build",
+    process: "Process",
     history: "History",
   }[id];
 }
