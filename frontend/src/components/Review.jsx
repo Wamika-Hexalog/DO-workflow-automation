@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { slotName } from "../lib/folder.js";
 import { fmtMoment, plural } from "../lib/format.js";
 import mascot from "../assets/mascot-ready.webp";
@@ -10,6 +10,88 @@ function seenKey(slot, shipment) {
   if (slot.file) return `${slot.id}:${slot.file.id}`;
   if (slot.source === "fixed") return slot.id;
   return `${slot.id}:${JSON.stringify(shipment.values)}`;
+}
+
+let pdfjs;
+// pdf.js is large, so it loads the first time a page is drawn.
+function loadPdfjs() {
+  pdfjs ??= Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")]).then(
+    ([lib, worker]) => {
+      lib.GlobalWorkerOptions.workerSrc = worker.default;
+      return lib;
+    },
+  );
+  return pdfjs;
+}
+
+// One document's stamped pages, drawn when they come near the screen.
+function DocPages({ url, title }) {
+  const ref = useRef(null);
+  const [state, setState] = useState("idle");
+
+  useEffect(() => {
+    const box = ref.current;
+    let cancelled = false;
+    let task;
+    const io = new IntersectionObserver(
+      async ([entry]) => {
+        if (!entry.isIntersecting) return;
+        io.disconnect();
+        setState("loading");
+        try {
+          const lib = await loadPdfjs();
+          task = lib.getDocument(url);
+          const pdf = await task.promise;
+          const width = Math.min(box.clientWidth, 900);
+          const ratio = window.devicePixelRatio || 1;
+          for (let n = 1; n <= pdf.numPages; n++) {
+            const page = await pdf.getPage(n);
+            const viewport = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width });
+            const canvas = document.createElement("canvas");
+            canvas.className = "doc-page";
+            canvas.width = Math.floor(viewport.width * ratio);
+            canvas.height = Math.floor(viewport.height * ratio);
+            canvas.style.width = `${viewport.width}px`;
+            canvas.setAttribute("role", "img");
+            canvas.setAttribute("aria-label", `${title}, page ${n} of ${pdf.numPages}`);
+            await page.render({
+              canvasContext: canvas.getContext("2d"),
+              viewport,
+              transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0],
+            }).promise;
+            if (cancelled) return;
+            box.appendChild(canvas);
+          }
+          setState("done");
+        } catch {
+          if (!cancelled) setState("error");
+        }
+      },
+      { rootMargin: "1200px 0px" },
+    );
+    io.observe(box);
+    return () => {
+      cancelled = true;
+      io.disconnect();
+      task?.destroy();
+      box.replaceChildren();
+    };
+  }, [url, title]);
+
+  return (
+    <>
+      <div ref={ref} className={`doc-pages ${state}`} />
+      {state === "loading" && <p className="doc-msg">Loading the stamped pages…</p>}
+      {state === "error" && (
+        <p className="doc-msg">
+          The preview can't be drawn here.{" "}
+          <a className="linkbtn" href={url} target="_blank" rel="noreferrer">
+            Open the PDF
+          </a>
+        </p>
+      )}
+    </>
+  );
 }
 
 // After the build: the DO request on ODeX, waiting for ops, running, failed or done.
@@ -73,7 +155,23 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
   const open = slots.filter((s) => s.status !== "ok").length;
   const folder = shipment.folder;
 
-  const src = slot.preview_url && `${slot.preview_url}?v=${encodeURIComponent(shipment.updated_at)}`;
+  const srcOf = (s) => s.preview_url && `${s.preview_url}?v=${encodeURIComponent(shipment.updated_at)}`;
+  const src = srcOf(slot);
+
+  // Every document in one scroll; the one at the top of the view is the current one.
+  const scroller = useRef(null);
+  const show = (i) => {
+    setCurrent(i);
+    scroller.current?.querySelector(`[data-doc="${i}"]`)?.scrollIntoView({ block: "start" });
+  };
+  const onScroll = (e) => {
+    const box = e.currentTarget;
+    const docs = [...box.querySelectorAll("[data-doc]")];
+    const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    const top = box.getBoundingClientRect().top + 48;
+    const i = atEnd ? docs.length - 1 : docs.filter((d) => d.getBoundingClientRect().top <= top).length - 1;
+    if (i >= 0 && i !== current) setCurrent(i);
+  };
 
   return (
     <section className="review-page">
@@ -139,7 +237,7 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
                   type="button"
                   className={`review-item${i === current ? " active" : ""}`}
                   aria-current={i === current ? "true" : undefined}
-                  onClick={() => setCurrent(i)}
+                  onClick={() => show(i)}
                 >
                   <span className="num">{i + 1}</span>
                   <span className="label" title={slotName(s)}>
@@ -187,7 +285,7 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
               className="btn btn-sm btn-icon"
               aria-label="Previous document"
               disabled={current === 0}
-              onClick={() => setCurrent(current - 1)}
+              onClick={() => show(current - 1)}
             >
               <ChevronLeftIcon />
             </button>
@@ -196,7 +294,7 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
               className="btn btn-sm btn-icon"
               aria-label="Next document"
               disabled={current === slots.length - 1}
-              onClick={() => setCurrent(current + 1)}
+              onClick={() => show(current + 1)}
             >
               <ChevronRightIcon />
             </button>
@@ -211,19 +309,28 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
               </a>
             )}
           </div>
-          {src ? (
-            // The browser's own PDF toolbar is hidden to give the page its height; Open has zoom and print.
-            <iframe
-              key={currentKey}
-              className="viewer-frame"
-              title={`Preview of ${slotName(slot)}`}
-              src={`${src}#toolbar=0&navpanes=0&view=FitH`}
-            />
-          ) : (
-            <div className="viewer-empty">
-              <p>{slot.flags[0] ? slot.flags[0].message : "This document isn't ready yet."}</p>
-            </div>
-          )}
+          <div className="viewer-scroll" ref={scroller} onScroll={onScroll}>
+            {slots.map((s, i) => (
+              <article key={s.id} className="doc" data-doc={i} aria-label={slotName(s)}>
+                <h4 className="doc-head">
+                  <span className="num">{i + 1}</span>
+                  <span className="label">{slotName(s)}</span>
+                  {s.status !== "ok" && (
+                    <span className={`badge ${s.status === "missing" ? "missing" : "error"}`}>
+                      {s.status === "missing" ? "Missing" : "Check"}
+                    </span>
+                  )}
+                </h4>
+                {s.preview_url ? (
+                  <DocPages url={srcOf(s)} title={slotName(s)} />
+                ) : (
+                  <div className="viewer-empty">
+                    <p>{s.flags[0] ? s.flags[0].message : "This document isn't ready yet."}</p>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
         </div>
       </div>
     </section>

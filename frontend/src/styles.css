@@ -582,7 +582,16 @@ textarea.input { min-height: 72px; resize: vertical; }
 .viewer-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: var(--hair) solid var(--rule); background: var(--hexa-mist); }
 .viewer-title { flex: 1; min-width: 0; margin-left: 6px; overflow: hidden; font: 600 14px/1.3 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
 .viewer-count { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.viewer-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #E9E6F2; }
+.viewer-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 24px; background: #E9E6F2; scroll-behavior: smooth; }
+.doc + .doc { margin-top: 28px; }
+.doc-head { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding-top: 14px; font: 600 13.5px/1.3 var(--font-display); color: var(--ink); }
+.doc-head .num { flex: none; min-width: 22px; color: var(--ink-2); font: 500 12.5px/1 var(--font-mono); }
+.doc-head .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-pages { display: grid; justify-items: center; gap: 14px; }
+.doc-pages.idle, .doc-pages.loading { min-height: 560px; }
+.doc-page { max-width: 100%; height: auto; border-radius: 4px; background: #fff; box-shadow: 0 1px 2px rgba(38, 18, 77, 0.12), 0 8px 24px -12px rgba(38, 18, 77, 0.25); }
+.doc-msg { margin: 0; color: var(--ink-2); font-size: 13px; text-align: center; }
+.doc .viewer-empty { min-height: 96px; border: var(--hair) dashed var(--rule); border-radius: var(--radius-md); background: var(--sheet); }
 .viewer-empty { display: grid; place-items: center; min-height: 320px; padding: 24px; color: var(--ink-2); text-align: center; }
 .build { display: grid; gap: 8px; padding: 12px; border-top: var(--hair) solid var(--rule); background: var(--hexa-mist); }
 .build .check { align-items: flex-start; font-size: 13px; line-height: 1.4; }
@@ -772,7 +781,7 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   .main.tight { display: block; }
   .review { display: flex; flex-direction: column-reverse; min-height: 0; }
   .review-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); max-height: 280px; }
-  .viewer-frame { flex: none; height: 70vh; }
+  .viewer-scroll { flex: none; height: 70vh; padding: 0 10px 16px; }
   .history li { grid-template-columns: minmax(0, 1fr) auto; }
   .history .detail-text { grid-column: 1 / -1; }
 }
