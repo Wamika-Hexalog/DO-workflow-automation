@@ -128,7 +128,7 @@ svg { flex: none; }
 .side-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 20px; }
 .side-brand strong { display: block; font-size: 15px; font-weight: 700; }
 .side-brand span { display: block; color: var(--sidebar-muted); font-size: 12px; }
-.side-mark { width: 32px; height: 32px; border-radius: var(--radius-sm); background: linear-gradient(135deg, var(--hexa-violet), var(--hexa-deep-violet)); box-shadow: 0 4px 10px -4px rgba(75, 36, 146, .5); }
+.side-mark { flex: none; width: 28px; height: 32px; }
 .side-nav { display: grid; gap: 2px; }
 .side-link, .pipe-item {
   display: flex;
@@ -812,3 +812,28 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
 .step-status.awaiting_approval { background: var(--marker); color: var(--marker-ink); }
 .step-status.failed { background: var(--alert-soft); color: var(--alert); }
 .step-status.pending { background: var(--tint); color: var(--ink-2); }
+
+/* The DO folder download: the Hexanaut sails off with it. */
+.celebrate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(38, 18, 77, 0.38); backdrop-filter: blur(3px); animation: fade-in 180ms ease-out; }
+.celebrate-card { position: relative; width: min(440px, 100%); padding: 0 28px 26px; overflow: hidden; border-radius: var(--radius-lg, 16px); background: var(--sheet); box-shadow: 0 30px 60px -20px rgba(38, 18, 77, 0.45); text-align: center; animation: pop-in 320ms cubic-bezier(0.16, 1, 0.3, 1); }
+.celebrate-card h2 { margin: 18px 0 6px; font: 700 24px/1.2 var(--font-display); color: var(--ink); }
+.celebrate-card p { margin: 0 auto 18px; max-width: 32ch; color: var(--ink-2); font-size: 14.5px; }
+.celebrate-close { position: absolute; top: 12px; right: 12px; z-index: 2; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.8); color: var(--ink); cursor: pointer; }
+.celebrate-close:hover { background: #fff; }
+.celebrate-scene { position: relative; height: 230px; margin: 0 -28px; overflow: hidden; background: linear-gradient(180deg, #F1EBFF 0%, #FFF8D6 100%); }
+.celebrate-ship { position: absolute; left: 50%; bottom: 14px; width: 320px; margin-left: -160px; animation: sail 1.4s cubic-bezier(0.16, 1, 0.3, 1) both, bob 2.6s ease-in-out 1.4s infinite; }
+.celebrate-ship svg { display: block; }
+.celebrate-ship img { position: absolute; left: 4px; bottom: 50px; width: auto; height: 128px; transform-origin: 50% 100%; animation: cheer 0.9s ease-in-out 1.2s 2; }
+.celebrate-sea { position: absolute; left: 0; bottom: 0; width: 200%; height: 40px; animation: waves 6s linear infinite; }
+.confetti { position: absolute; top: -10px; left: calc(8% + var(--i) * 11%); width: 8px; height: 12px; border-radius: 2px; background: var(--c); opacity: 0; animation: fall 1.8s ease-in calc(var(--i) * 90ms + 300ms) 1 both; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } }
+@keyframes sail { from { transform: translateX(-120%); } }
+@keyframes bob { 50% { transform: translateY(-4px) rotate(-1deg); } }
+@keyframes cheer { 50% { transform: rotate(-6deg) translateY(-6px); } }
+@keyframes waves { to { transform: translateX(-50%); } }
+@keyframes fall { 0% { opacity: 1; transform: translateY(0) rotate(0); } 100% { opacity: 0; transform: translateY(240px) rotate(540deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .celebrate, .celebrate-card, .celebrate-ship, .celebrate-ship img, .celebrate-sea { animation: none; }
+  .confetti { display: none; }
+}

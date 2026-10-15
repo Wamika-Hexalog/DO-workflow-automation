@@ -1,3 +1,4 @@
+import mark from "../assets/hexalog-mark.svg";
 import { BoardIcon, HelpIcon } from "./Icons.jsx";
 import { stageTone } from "./Route.jsx";
 
@@ -5,8 +6,7 @@ export default function Sidebar({ page, onPage, stages, shipments, onStage, onRe
   return (
     <aside className="sidebar" aria-label="Workspace">
       <div className="side-brand">
-        {/* A plain tile until the brand's cube mark is added: the brand never redraws its logo. */}
-        <span className="side-mark" aria-hidden="true" />
+        <img className="side-mark" src={mark} alt="Hexalog" width="28" height="32" />
         <div>
           <strong>DO Workflow</strong>
           <span>Hexalog customs</span>

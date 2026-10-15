@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.js";
 import Board from "./components/Board.jsx";
+import Celebrate from "./components/Celebrate.jsx";
 import Detail from "./components/Detail.jsx";
 import Faq from "./components/Faq.jsx";
 import Helper from "./components/Helper.jsx";
@@ -50,6 +51,8 @@ export default function App() {
   const [boardFocus, setBoardFocus] = useState(null);
   const [building, setBuilding] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [celebrate, setCelebrate] = useState(null);
+  const endCelebrate = useCallback(() => setCelebrate(null), []);
 
   const say = useCallback((msg) => setToast({ msg, at: Date.now() }), []);
 
@@ -135,7 +138,10 @@ export default function App() {
           say(`The DO folder wasn't built. ${review.note}`);
           return false;
         }
-        if (updated.folder) download(updated.folder);
+        if (updated.folder) {
+          download(updated.folder);
+          setCelebrate({ mbl: updated.values.mbl_no });
+        }
         if (before && before.status !== updated.status) {
           say("DO folder built and downloaded. The job moved to DO folder ready.");
         } else {
@@ -261,6 +267,7 @@ export default function App() {
             onBack={back}
             onMove={moveTo}
             onBuild={build}
+            onDownload={() => setCelebrate({ mbl: current.values.mbl_no })}
             building={building}
             onApproveDoRequest={approveDoRequest}
             approving={approving}
@@ -292,6 +299,7 @@ export default function App() {
         )}
       </div>
       {!current && page === "board" && <Helper onOpenFaq={() => setPage("faq")} />}
+      {celebrate && <Celebrate mbl={celebrate.mbl} onClose={endCelebrate} />}
       <div className="toast-wrap" role="status" aria-live="polite">
         {toast && (
           <div className="toast" key={toast.at}>

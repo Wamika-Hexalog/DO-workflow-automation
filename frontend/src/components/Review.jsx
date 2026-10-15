@@ -138,7 +138,7 @@ function DoRequest({ shipment, automated, onApprove, approving }) {
 }
 
 // `seen` lives in the shipment view, so stepping out to fix a field keeps the progress.
-export default function Review({ shipment, seen, setSeen, onBuild, goTo, building, automated, onApprove, approving }) {
+export default function Review({ shipment, seen, setSeen, onBuild, onDownload, goTo, building, automated, onApprove, approving }) {
   const [current, setCurrent] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -210,7 +210,7 @@ export default function Review({ shipment, seen, setSeen, onBuild, goTo, buildin
           ) : (
             <>
               <strong>Folder built {fmtMoment(folder.built_at)}.</strong>{" "}
-              <a className="linkbtn" href={folder.url} download={folder.filename}>
+              <a className="linkbtn" href={folder.url} download={folder.filename} onClick={onDownload}>
                 Download the PDF
               </a>
             </>

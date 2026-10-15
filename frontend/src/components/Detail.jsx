@@ -75,6 +75,7 @@ export default function Detail({
   onBack,
   onMove,
   onBuild,
+  onDownload,
   building,
   onApproveDoRequest,
   approving,
@@ -168,6 +169,7 @@ export default function Detail({
         seen={reviewSeen}
         setSeen={setReviewSeen}
         onBuild={() => onBuild(shipment.id)}
+        onDownload={onDownload}
         building={building}
         automated={Boolean(folder.odex && folder.odex.automated)}
         onApprove={() => onApproveDoRequest(shipment.id)}
@@ -274,7 +276,7 @@ export default function Detail({
             {built && !built.stale && (
               <>
                 Folder built {fmtMoment(built.built_at)}.{" "}
-                <a className="linkbtn" href={built.url} download={built.filename}>
+                <a className="linkbtn" href={built.url} download={built.filename} onClick={onDownload}>
                   Download PDF
                 </a>
               </>
