@@ -94,6 +94,7 @@ The app mails Finance from the app's mailbox, in the form Customs Ops use:
 
 ```
 To: Finance's email (fixed details: finance_email)
+Cc: every address in the fixed details' mail_cc
 Subject: HXL/IMP/26-27/0001 // ABC1234567 // CMA // #DOHACK
 Attachment: DO-invoice-ABC1234567.pdf
 
@@ -111,6 +112,7 @@ Customs Operations
 - The deposit amount is the job's "Security deposit" field (`deposit_amount`, 40000 by default).
 - The marker at the end of the subject brings Finance's reply back to the app.
 - During testing, `finance_email` is our own mailbox.
+- Every mail the app sends copies the addresses in the fixed details' `mail_cc`.
 - The app sends through Outlook when the `OUTLOOK_*` settings are filled. Without them, the mail goes to `backend/data/files/outbox/`.
 - A job gets this mail only once.
 

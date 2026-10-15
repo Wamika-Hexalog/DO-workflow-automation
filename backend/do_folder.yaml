@@ -43,6 +43,8 @@ profile_fields:
   # Where the app mails the DO invoice for payment (DO_AUTOMATE_PORTALS). Finance replies with the UTRs.
   # No default: whoever sets the app up says who gets real mail.
   - { key: finance_email, label: Finance's email for the DO invoice }
+  # Copied on every mail the app sends, comma-separated. No default, as for Finance.
+  - { key: mail_cc, label: Cc on every mail the app sends, optional: true }
   # The DO request on ODeX, as the team's guide "DO final steps corrected" fills it.
   # Its screenshots leave the runner boy and his mobile no. empty.
   - { key: odex_hss_customer, label: HSS customer name on ODeX's DO request, default: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD }

@@ -172,6 +172,11 @@ def refresh_payments_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
 # The mail to Finance -------------------------------------------------------------
 
 
+def _addresses(value: Any) -> list[str]:
+    """Addresses from a fixed detail, comma-separated."""
+    return [a.strip() for a in str(value or "").split(",") if a.strip()]
+
+
 def finance_mail_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
     """Asks Finance to pay CMA CGM, as Customs Ops ask it ("<job> // <MBL> // CMA //"):
     the shipping line invoice attached, and the security deposit. One line more asks
@@ -180,7 +185,7 @@ def finance_mail_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
     with rt.sessionmaker() as session:
         shipment = service.load_shipment(session, shipment_id)
         profile = service.load_profile(session)
-        to = [a.strip() for a in str(profile.data.get("finance_email") or "").split(",") if a.strip()]
+        to, cc = _addresses(profile.data.get("finance_email")), _addresses(profile.data.get("mail_cc"))
         mbl = shipment.data.get("mbl_no") or ""
         invoice_no = shipment.data.get("do_invoice_no") or ""
         amount = shipment.data.get("do_invoice_amount")
@@ -206,13 +211,14 @@ def finance_mail_job(rt: Runtime, shipment_id: str) -> dict[str, Any]:
             "<p>Thanks &amp; Regards,<br>Customs Operations</p>"
         )
         subject = f"{shipment.job_no} // {mbl} // CMA // {rt.settings.mail_marker}".strip()
-        return {"to": to, "subject": subject, "body_html": body, "attachments": [str(pdf)]}
+        return {"to": to, "cc": cc, "subject": subject, "body_html": body, "attachments": [str(pdf)]}
 
 
 def record_finance_mail_job(rt: Runtime, shipment_id: str, sent: dict[str, Any]) -> None:
     with rt.sessionmaker() as session:
         shipment = service.load_shipment(session, shipment_id)
-        note = f"Mailed the DO invoice to Finance ({', '.join(sent['to'])}), asking for the UTRs."
+        copied = f", cc {', '.join(sent['cc'])}" if sent.get("cc") else ""
+        note = f"Mailed the DO invoice to Finance ({', '.join(sent['to'])}{copied}), asking for the UTRs."
         tasks.done(session, shipment.id, tasks.FINANCE_MAIL, note, {"message_id": sent.get("id")}, by=AGENT)
         service.log(session, shipment.id, "mail", note)
         session.commit()

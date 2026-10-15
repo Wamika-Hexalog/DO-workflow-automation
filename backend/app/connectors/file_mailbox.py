@@ -28,7 +28,7 @@ class FileMailbox:
 
     async def send_email(
         self, to: list[str], subject: str, body_html: str, from_address: str | None = None,
-        attachment_paths: list[str] | None = None,
+        attachment_paths: list[str] | None = None, cc: list[str] | None = None,
     ) -> dict[str, Any]:
         """Keeps the mail in this folder instead of sending it, in the shape the inbox reads."""
         message_id = uuid.uuid4().hex
@@ -40,6 +40,7 @@ class FileMailbox:
             "id": message_id,
             "subject": subject,
             "toRecipients": [{"emailAddress": {"address": address}} for address in to],
+            "ccRecipients": [{"emailAddress": {"address": address}} for address in cc or []],
             "body": {"contentType": "html", "content": body_html},
             "hasAttachments": bool(attachment_paths),
         }

@@ -65,7 +65,7 @@ The process runs as small Inngest functions, each triggered by an event, in pyth
 |---|---|---|
 | `do-invoice-request` | `customs/do.document.received` for the MBL | Requests the DO invoice on ODeX (`DO_AUTOMATE_PORTALS`) |
 | `do-invoice-collect` | `customs/do.invoice.verified` (the liner's mail) | Collects the invoice from ODeX: its number, amount and PDF go on the job |
-| `do-finance-mail` | `customs/do.invoice.collected` | Mails the invoice to Finance (Outlook, or the outbox on disk without it), asking for the two UTRs |
+| `do-finance-mail` | `customs/do.invoice.collected` | Mails the invoice to Finance (Outlook, or the outbox on disk without it), asking for the two UTRs, with the fixed details' `mail_cc` in Cc |
 | `do-payments-refresh` | `customs/do.shipment.updated`, `customs/do.document.received`, the UTR and invoice events | Puts each payment step in front of ops once the job has what it needs; moves the job to Deposit approved once ODeX's slip is in for every house bill |
 | `do-rtgs-payment`, `do-rtgs-deposit` | `customs/task.completed` for each payment | Confirm the shipment payment and the security deposit on CMA CGM's RTGS page; the first moves the job to Invoice paid |
 | `do-deposit-request` | `customs/task.completed` for the deposit | Raises the security deposit on ODeX for each house bill |

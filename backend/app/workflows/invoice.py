@@ -134,11 +134,11 @@ def _send_once(rt: Runtime, shipment_id: str, mail: dict[str, Any]) -> Callable[
             return earlier
         try:
             message = await make_sender(rt).send_email(mail["to"], mail["subject"], mail["body_html"],
-                                                       attachment_paths=mail["attachments"])
+                                                       attachment_paths=mail["attachments"], cc=mail.get("cc"))
         except Exception as exc:
             await asyncio.to_thread(settle, None, str(exc))
             raise inngest.NonRetriableError(f"The mail to Finance wasn't sent: {exc}") from exc
-        sent = {"id": (message or {}).get("id"), "to": mail["to"]}
+        sent = {"id": (message or {}).get("id"), "to": mail["to"], "cc": mail.get("cc") or []}
         await asyncio.to_thread(settle, sent)
         return sent
 

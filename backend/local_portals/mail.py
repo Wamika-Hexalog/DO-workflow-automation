@@ -93,6 +93,10 @@ def deliver_pending(store: Store) -> int:
 # Finance -------------------------------------------------------------------------
 
 
+def _addresses(message: dict[str, Any], key: str) -> str:
+    return ", ".join(r["emailAddress"]["address"] for r in message.get(key, []))
+
+
 def finance_mails(store: Store) -> list[dict[str, Any]]:
     """The app's payment mails (its outbox), with Finance's reply if it has sent one."""
     if not app_url():
@@ -103,8 +107,8 @@ def finance_mails(store: Store) -> list[dict[str, Any]]:
     mails = []
     for path in sorted(outbox.glob("*/message.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         message = json.loads(path.read_text())
-        to = ", ".join(r["emailAddress"]["address"] for r in message.get("toRecipients", []))
-        mails.append({"id": message["id"], "to": to, "subject": message["subject"], "at": path.stat().st_mtime,
+        mails.append({"id": message["id"], "to": _addresses(message, "toRecipients"), "cc": _addresses(message, "ccRecipients"),
+                      "subject": message["subject"], "at": path.stat().st_mtime,
                       "reply": replied.get(message["id"])})
     return mails
 

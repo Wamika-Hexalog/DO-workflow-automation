@@ -115,6 +115,10 @@ def _actions(kind: str, item: dict[str, Any], answer: str, can_reject: bool) -> 
     return buttons
 
 
+def _copied(mail_item: dict[str, Any]) -> str:
+    return f'<div class="hint">cc {esc(mail_item["cc"])}</div>' if mail_item["cc"] else ""
+
+
 @router.get("")
 def control_panel(request: Request, said: str = "") -> Response:
     with _store(request).read() as data:
@@ -139,7 +143,7 @@ def control_panel(request: Request, said: str = "") -> Response:
             for m in data["outbox"]
         ]
     finance_rows = [
-        f'<tr data-mail="{esc(m["id"])}"><td>{esc(m["to"])}</td><td><b>{esc(m["subject"])}</b></td><td>'
+        f'<tr data-mail="{esc(m["id"])}"><td>{esc(m["to"])}{_copied(m)}</td><td><b>{esc(m["subject"])}</b></td><td>'
         + (
             f'Paid: invoice UTR {esc(m["reply"]["invoice_utr"])}, deposit UTR {esc(m["reply"]["deposit_utr"])}'
             if m["reply"] else
