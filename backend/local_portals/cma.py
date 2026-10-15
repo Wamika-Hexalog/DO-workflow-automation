@@ -4,8 +4,10 @@ deposit and issuing the eDO. For real each takes hours or days; here it takes a
 click, or a few seconds with autoplay on.
 
 Each answer moves one waiting request on and writes the documents CMA CGM would
-send. What would arrive by email goes in the outbox on the control panel:
-nothing is sent anywhere.
+send. What would arrive by email goes in the outbox on the control panel, written
+like the real mail (the RTGS confirmation, the security slip); where no real mail
+has been seen (the invoice released, the eDO issued) the mail carries a code line.
+local_portals/mail.py hands the outbox to the app when the demo asks for it.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import documents
+from . import documents, mail
 from .settings import ACCOUNT_NAME
 from .store import Store, next_number, now
 
@@ -54,10 +56,18 @@ def _waiting(data: dict[str, Any], kind: str, item_id: str) -> dict[str, Any]:
     raise NotWaiting(f"There is no request {item_id}.")
 
 
-def _email(data: dict[str, Any], to: str, subject: str, body: str, attachments: list[str]) -> None:
-    data["outbox"].insert(
-        0, {"id": secrets.token_hex(6), "at": now(), "to": to, "subject": subject, "body": body, "attachments": attachments}
-    )
+DO_MAILBOX = "the DO mailbox"
+
+
+def _email(
+    data: dict[str, Any], to: str, subject: str, body: str, attachments: list[str],
+    codes: list[tuple[str, str, str]] = (),
+) -> None:
+    """``codes``: (stage, B/L, argument) for the code lines the app reads (app/email_code.py)."""
+    data["outbox"].insert(0, {
+        "id": secrets.token_hex(6), "at": now(), "to": to, "subject": subject, "body": body,
+        "attachments": attachments, "codes": [list(code) for code in codes],
+    })
 
 
 def verify_invoice(store: Store, item_id: str) -> str:
@@ -85,6 +95,12 @@ def verify_invoice(store: Store, item_id: str) -> str:
             status="Released", invoice_no=invoice_no, amount=total, invoice_file=file_id,
             invoice_date=date.today().isoformat(), answered_at=now(),
         )
+        _email(
+            data, DO_MAILBOX, f"DO invoice {invoice_no} released for BL {request['bl_no']}",
+            f"The DO invoice {invoice_no} for BL {request['bl_no']}, Rs. {documents.money(total)}, is released on "
+            f"ODeX: ePayment, EDO DETAILS, BL {request['bl_no']}.",
+            [], codes=[("invoice", request["bl_no"], invoice_no)],
+        )
     return f"Released {request['ref']}: invoice {invoice_no} for Rs. {documents.money(total)}, on ODeX for BL {request['bl_no']}."
 
 
@@ -106,11 +122,23 @@ def send_receipts(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"{kind} {receipt_no}.pdf")
         request.update(status="Receipt Sent", receipts=[file_id], answered_at=now())
+        # As CMA CGM's eBusiness mail reads (app/email_infer.py knows it).
+        row = rows[0] if rows else {"invoice_no": "", "bl_no": request["bl_no"], "amount": request["amount"]}
         _email(
             data,
             ", ".join(request["emails"]),
-            f"{kind} {receipt_no} for B/L {request['bl_no']}",
-            f"We have received your payment, UTR {request['utr']}, for B/L {request['bl_no']}. The receipt is attached.",
+            f"RTGS/NEFT Confirmation Request Processed - {request['ref']}",
+            "CMA CGM eBusiness\n"
+            f"RTGS/NEFT Confirmation Request Processed - {request['ref']}\n"
+            "Status:  Request Confirmed\n"
+            "Request Details\n"
+            f"Request Id: {request['ref']}\n"
+            f"UTR: {request['utr']}\n"
+            f"Date of Transfer: {date.fromisoformat(request['transfer_date']):%d-%b-%Y}\n"
+            f"Amount Transferred: INR {documents.money(request['amount'])}\n"
+            "Invoice Details\n"
+            "Invoice Ref. BL Number I/E Amount\n"
+            f"{row['invoice_no'] or '-'}\t{row['bl_no']}\tI\t{documents.money(row['amount'])}\n",
             [file_id],
         )
     return f"Emailed {kind} {receipt_no} for {request['ref']} to {', '.join(request['emails'])}."
@@ -126,6 +154,15 @@ def approve_deposit(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"Security deposit slip {deposit['bl_no']}.pdf")
         deposit.update(status="Deposit Approved", slip_file=file_id, answered_at=now())
+        # As ODeX's mail reads (app/email_infer.py knows it).
+        _email(
+            data, DO_MAILBOX, f"ODeX: Security slip - {deposit['ref']}",
+            "Please find the attached security slip issued by CMA CGM AGENCIES INDIA PRIVATE LIMITED\n"
+            f"BL No. - {deposit['bl_no']}\n"
+            f"Instrument No. - {deposit['utr']}\n"
+            "Status - Deposit Approved\n",
+            [file_id],
+        )
     return f"Approved {deposit['ref']} for B/L {deposit['bl_no']}. ODeX now offers its slip."
 
 
@@ -143,6 +180,12 @@ def issue_edo(store: Store, item_id: str) -> str:
         )
         file_id = store.add_file(data, pdf, f"eDO {edo_no} {request['bl_no']}.pdf")
         request.update(status="DO Issued", edo_no=edo_no, edo_file=file_id, answered_at=now())
+        _email(
+            data, DO_MAILBOX, f"eDO {edo_no} issued for BL {request['bl_no']}",
+            f"The delivery order {edo_no} for BL {request['bl_no']} is issued. It is attached, and on ODeX "
+            "under DO Request.",
+            [file_id], codes=[("edo", request["bl_no"], "")],
+        )
     return f"Issued {edo_no} for {request['ref']} (B/L {request['bl_no']}). ODeX now offers the eDO."
 
 
@@ -187,7 +230,8 @@ class Autoplay:
                 logger.exception("Autoplay could not answer a request")
 
     def tick(self, moment: datetime | None = None) -> list[str]:
-        """Answers every request that has waited long enough. Returns what it did."""
+        """Answers every request, and every payment mail from the app (as Finance), that
+        has waited long enough, then hands the new mail to the app. Returns what it did."""
         moment = moment or datetime.now()
         with self.store.read() as data:
             if not data["autoplay"]["on"]:
@@ -199,10 +243,16 @@ class Autoplay:
                 for item in data[kind]
                 if item["status"] == waiting and datetime.fromisoformat(item["created_at"]) + delay <= moment
             ]
+        to_pay = [
+            m["id"] for m in mail.finance_mails(self.store)
+            if not m["reply"] and datetime.fromtimestamp(m["at"]) + delay <= moment
+        ]
         done = []
         for kind, item_id in due:
             try:
                 done.append(ANSWERS[kind](self.store, item_id))
             except NotWaiting:
                 pass  # answered from the control panel in the meantime
+        done += [mail.pay(self.store, message_id) for message_id in to_pay]
+        mail.deliver_pending(self.store)
         return done

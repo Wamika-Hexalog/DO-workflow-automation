@@ -10,7 +10,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 
-from . import cma, pages
+from . import cma, mail, pages
 from .pages import esc
 from .store import Store
 
@@ -130,11 +130,28 @@ def control_panel(request: Request, said: str = "") -> Response:
             table = pages.table(kind.replace("_", "-"), ["Request", "B/L no.", "Status", "Details", "CMA CGM"], rows, "Nothing yet.")
             sections.append(f"<h2>{esc(title)}</h2>{table}")
         emails = [
-            f"<tr><td>{esc(mail['at'].replace('T', ' '))}</td><td>{esc(mail['to'])}</td>"
-            f"<td><b>{esc(mail['subject'])}</b><div class=\"hint\">{esc(mail['body'])}</div></td>"
-            f"<td>{'<br>'.join(_file(f, data) for f in mail['attachments'])}</td></tr>"
-            for mail in data["outbox"]
+            f"<tr><td>{esc(m['at'].replace('T', ' '))}</td><td>{esc(m['to'])}</td>"
+            f"<td><b>{esc(m['subject'])}</b><div class=\"hint\">{esc(m['body'])}</div></td>"
+            f"<td>{'<br>'.join(_file(f, data) for f in m['attachments'])}</td>"
+            f"<td>{'In the app' if m.get('delivered') else '-'}</td></tr>"
+            for m in data["outbox"]
         ]
+    finance_rows = [
+        f'<tr data-mail="{esc(m["id"])}"><td>{esc(m["to"])}</td><td><b>{esc(m["subject"])}</b></td><td>'
+        + (
+            f'Paid: invoice UTR {esc(m["reply"]["invoice_utr"])}, deposit UTR {esc(m["reply"]["deposit_utr"])}'
+            if m["reply"] else
+            f'<form method="post" action="/control/finance/pay/{esc(m["id"])}"><button class="btn small">Pay and reply</button></form>'
+        )
+        + "</td></tr>"
+        for m in mail.finance_mails(_store(request))
+    ]
+    finance = (
+        "<h2>Finance: the app's payment mails</h2>"
+        '<p class="hint">Finance pays CMA CGM and replies with the two UTRs, which the app reads.</p>'
+        + pages.table("finance", ["To", "Subject", "Finance"], finance_rows, "No payment mail from the app yet.")
+        if mail.app_url() else ""
+    )
     flash = f'<div class="outcome accepted" id="said">{esc(said)}</div>' if said else ""
     state = "on" if autoplay["on"] else "off"
     body = f"""<h1>Control panel</h1>
@@ -150,9 +167,11 @@ Turn autoplay {'off' if autoplay['on'] else 'on'}</button>
 <button class="btn" name="on" value="{'1' if autoplay['on'] else '0'}">Save delay</button></div>
 </form></div>
 {"".join(sections)}
+{finance}
 <h2>Emails CMA CGM would send</h2>
-<p class="hint">Nothing is sent: in real life these arrive in the mailbox the Graph subscription watches.</p>
-{pages.table("outbox", ["Sent", "To", "Subject", "Attachments"], emails, "No emails yet.")}
+<p class="hint">In real life these arrive in the mailbox the Graph subscription watches. In the demo
+(make demo-local) each one goes to the app's mailbox on this machine; otherwise nothing is sent.</p>
+{pages.table("outbox", ["Sent", "To", "Subject", "Attachments", "Mail"], emails, "No emails yet.")}
 <h2>Start again</h2>
 <form method="post" action="/control/reset" onsubmit="return confirm('Clear every request, email and file in the local portals?')">
 <button class="btn" id="reset">Reset the local portals</button></form>"""
@@ -171,9 +190,19 @@ def answer(kind: str, item_id: str, request: Request) -> Response:
     if kind not in cma.ANSWERS:
         return Response("No such kind of request.", status_code=404)
     try:
-        return _back(cma.ANSWERS[kind](_store(request), item_id))
+        said = cma.ANSWERS[kind](_store(request), item_id)
     except cma.NotWaiting as exc:
         return _back(str(exc))
+    if mail.deliver_pending(_store(request)):
+        said += " The mail is in the app's mailbox."
+    return _back(said)
+
+
+@router.post("/finance/pay/{message_id}")
+def finance_pays(message_id: str, request: Request) -> Response:
+    if not mail.app_url():
+        return Response("Finance plays only in the demo (make demo-local).", status_code=404)
+    return _back(mail.pay(_store(request), message_id))
 
 
 @router.post("/reject/{kind}/{item_id}")

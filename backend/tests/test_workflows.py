@@ -113,6 +113,16 @@ def test_a_failed_build_goes_back_to_ops(api, engine, private_dir):
     assert s["status"] == "folder_ready"
 
 
+def test_ops_approve_a_payment_once_it_is_ready_and_restart_a_step_only_after_it_failed(api):
+    # Protects: the task buttons refuse a click that doesn't fit the step. Fails if a payment can be approved before it's ready, or a step the agent runs restarted when it hasn't failed.
+    s = new_shipment(api)
+    early = api.post(f"/api/shipments/{s['id']}/tasks/cma_rtgs_payment/complete", json={"by": "Ravi"})
+    assert early.status_code == 409 and "Nothing to approve yet" in early.json()["detail"]
+    again = api.post(f"/api/shipments/{s['id']}/tasks/odex_invoice_request/complete", json={"by": "Ravi"})
+    assert again.status_code == 409 and "after it failed" in again.json()["detail"]
+    assert api.post(f"/api/shipments/{s['id']}/tasks/no_such_step/complete", json={}).status_code == 404
+
+
 def test_building_opens_the_do_request_for_ops(api, engine):
     s = new_shipment(api)
     refused = api.post(f"/api/shipments/{s['id']}/tasks/odex_do_request/complete", json={})

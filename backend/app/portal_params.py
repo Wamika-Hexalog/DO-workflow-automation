@@ -182,13 +182,18 @@ def _request_invoice(job: _Job, hbl: str | None) -> dict[str, str]:
     }
 
 
+def invoice_pdf_path(rt: Runtime, shipment: Shipment) -> str:
+    """Where the DO invoice from ODeX is kept, for the mail to Finance."""
+    mbl = shipment.data.get("mbl_no") or ""
+    return str(assemble.shipment_dir(rt.settings, shipment.id) / "portal" / f"DO-invoice-{mbl}.pdf")
+
+
 def _invoice_fetch(job: _Job, hbl: str | None) -> dict[str, str]:
     """The team's ODeX guide, steps 6-10: the invoice goes to Finance, with the security deposit."""
-    mbl = job.field("mbl_no")
     return {
         "odex_location": job.field("odex_location"),
-        "mbl_no": mbl,
-        "invoice_save_path": job.portal_file(f"DO-invoice-{mbl}.pdf"),
+        "mbl_no": job.field("mbl_no"),
+        "invoice_save_path": invoice_pdf_path(job.rt, job.shipment),
     }
 
 

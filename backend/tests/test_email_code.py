@@ -1,6 +1,8 @@
 """The injected code that stands in for a classifier."""
 import pytest
 
+from datetime import date
+
 from app.email_code import fields_for, parse_injected_codes
 
 
@@ -60,8 +62,9 @@ def test_utr_and_invoice_codes_name_the_shipment_field_they_fill() -> None:
         "DOHACK:invoice:SHZ1234567:INVDEMO000001\nDOHACK:edo:SHZ1234567",
         prefix="DOHACK",
     )
-    assert fields_for(utr) == {"payment_utr": "100000000001"}
-    assert fields_for(deposit) == {"deposit_utr": "100000000002"}
+    today = date.today().isoformat()
+    assert fields_for(utr) == {"payment_utr": "100000000001", "payment_date": today}
+    assert fields_for(deposit) == {"deposit_utr": "100000000002", "payment_date": today}
     assert fields_for(invoice) == {"do_invoice_no": "INVDEMO000001"}
     assert fields_for(edo) == {}
 

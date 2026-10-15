@@ -64,6 +64,10 @@ class Settings:
     # The portals the SOPs open. The defaults are the local versions (make portals).
     odex_url: str = "http://127.0.0.1:8100/odex"
     cma_rtgs_url: str = "http://127.0.0.1:8100/cma-rtgs"
+    # Run the steps before and after the DO request with the browser agent as their mail
+    # arrives: request and collect the invoice, mail it to Finance, confirm the payments,
+    # raise the deposit, collect the eDO. Off: ops do them by hand, as before.
+    automate_portals: bool = False
 
     # Outlook / Microsoft Graph, python-brain's variable names. The hackathon mock flow reads
     # only mail whose body carries "<inject_code_prefix>:<stage>:<MBL>[:<arg>]".
@@ -123,6 +127,7 @@ class Settings:
             browser_allowed_hosts=_hosts("DO_BROWSER_ALLOWED_HOSTS"),
             odex_url=os.getenv("DO_ODEX_URL", cls.odex_url).rstrip("/"),
             cma_rtgs_url=os.getenv("DO_CMA_RTGS_URL", cls.cma_rtgs_url).rstrip("/"),
+            automate_portals=_flag("DO_AUTOMATE_PORTALS", False),
             outlook_client_id=os.getenv("OUTLOOK_CLIENT_ID", ""),
             outlook_client_secret=os.getenv("OUTLOOK_CLIENT_SECRET", ""),
             outlook_tenant_id=os.getenv("OUTLOOK_TENANT_ID", ""),

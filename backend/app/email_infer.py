@@ -4,6 +4,7 @@ InjectedCode list as an explicit code, so the workflow downstream is the same.
 
     CMA CGM RTGS/NEFT confirmation  -> UTR, invoice number (or the deposit), the receipt
     ODeX security slip              -> the slip, for the HBL it names
+    Finance's reply to the app      -> the UTR of the invoice payment and of the deposit
     draft MBL/HBL mail              -> the MBL (its attachments are routed by file name or text)
 
 shortcut: written from the sample mails only; a changed wording needs a changed pattern here.
@@ -16,6 +17,9 @@ from .email_code import InjectedCode, html_to_text
 
 _RTGS_ROW = re.compile(r"(\S+)\s+([A-Z]{3}\d{7})\s+[IE]\s+([\d,]+\.\d\d)")
 _MBL = re.compile(r"\b[A-Z]{3}\d{7}\b")
+# The lines the app's payment mail asks Finance to fill (app/process.py). Left empty, as
+# in the copy quoted under a reply, they match nothing.
+_FINANCE_UTR = re.compile(r"\b((?i:invoice|deposit)) (?i:utr):[ \t]*((?=[A-Z0-9]*\d)[A-Z0-9]{8,22})\b")
 
 
 def marker_present(marker: str, subject: str, body: str) -> bool:
@@ -29,11 +33,14 @@ def infer_codes(subject: str, body: str, *, hbl_pattern: str) -> list[InjectedCo
         return _rtgs(text)
     if re.search(r"security slip", text, re.I) and "Deposit Approved" in text:
         return _slip(text)
+    if _FINANCE_UTR.search(text):
+        return _finance(text)
     return _drafts(text, hbl_pattern)
 
 
 def _rtgs(text: str) -> list[InjectedCode]:
-    utr, row = re.search(r"UTR:\s*(\d{8,22})", text), _RTGS_ROW.search(text)
+    # A UTR may carry letters (SBIN526012345678), not only digits.
+    utr, row = re.search(r"UTR:\s*([A-Z0-9]{8,22})\b", text), _RTGS_ROW.search(text)
     if not utr or not row:
         return []
     invoice_ref, mbl = row.group(1), row.group(2)
@@ -53,6 +60,16 @@ def _slip(text: str) -> list[InjectedCode]:
     hbl = re.search(r"BL No\.\s*-\s*([A-Z0-9]+)", text)
     # The slip names the house bill, not the MBL; the job is found by its HBL.
     return [InjectedCode("document", hbl.group(1), f"security_odex_receipt:{hbl.group(1)}")] if hbl else []
+
+
+def _finance(text: str) -> list[InjectedCode]:
+    mbl = re.search(r"\bMBL\s+([A-Z]{3}\d{7})\b", text)
+    if not mbl:
+        return []
+    found = dict.fromkeys((kind.lower(), utr) for kind, utr in _FINANCE_UTR.findall(text))
+    return [
+        InjectedCode("utr", mbl.group(1), utr if kind == "invoice" else f"deposit:{utr}") for kind, utr in found
+    ]
 
 
 def _drafts(text: str, hbl_pattern: str) -> list[InjectedCode]:

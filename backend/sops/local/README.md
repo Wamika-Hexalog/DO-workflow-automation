@@ -19,7 +19,16 @@ make portal-step JOB=0431 STEP=odex_request_invoice SHOW=1
 
 Between steps, play CMA CGM on the control panel at http://127.0.0.1:8100/control: release the invoice, email the receipts, approve the deposit, issue the eDO. You can also turn on autoplay so each answer comes by itself a few seconds later. The panel also shows the emails CMA CGM would send, with their attachments. Nothing is actually sent.
 
-`make demo-local` runs the app, the Inngest dev server and the portals together. With it, approving a DO request in the app raises it on the local ODeX, in a visible browser.
+`make demo-local` runs the app, the Inngest dev server and the portals together, with `DO_AUTOMATE_PORTALS` on. The whole process then runs from the mail, each step in a visible browser:
+
+1. Attach the MBL to a job (or send the draft MBL and HBL mail). The agent requests the DO invoice on ODeX.
+2. Release the invoice on the control panel. Its mail brings the agent back to collect the invoice. The app then mails it to Finance; locally, that mail goes to the app's outbox folder.
+3. Under Finance on the control panel, pay and reply. The app reads the two UTRs. The two RTGS confirmations then wait for ops, under Process on the job.
+4. Approve them. Email the receipts on the control panel, and the raise of the deposit waits for ops. Approve it.
+5. Approve the deposit on the control panel. ODeX's slip comes by mail, and the job moves to Deposit approved.
+6. Review and build the folder, and approve the DO request. Issue the eDO on the control panel: its mail brings the agent back to collect it, and the job moves to eDO received.
+
+Autoplay answers for CMA CGM and Finance by itself, so only the ops approvals need a click. `make portal-step` still runs any one step by hand.
 
 ODeX login: `hexalog-demo` / `local-demo-only`, from `LOCAL_ODEX_USERNAME` and `LOCAL_ODEX_PASSWORD` (`app/config.py`). It's not a secret: the portal only runs on this machine. Type the captcha as shown (it's case-sensitive), then choose the company, `LOCAL_ODEX_ACCOUNT`, and Confirm Sign In. Like the real ODeX, a browser that has signed in with the User ID isn't asked for the captcha again for 30 days.
 

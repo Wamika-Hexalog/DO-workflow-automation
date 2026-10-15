@@ -35,6 +35,17 @@ SHZ1234567 WOLSZSE12345678A 2026/ML/21-08/01
 SHZ1234567 WOLSZSE12345678B 2026/ML/21-08/02
 """
 
+# Finance's reply to the app's payment mail, quoting it: the quoted lines are empty.
+FINANCE_REPLY = """Paid both today.
+Invoice UTR: SBIN526000000001
+Deposit UTR: SBIN526000000002
+
+From: DO workflow
+Please pay CMA CGM for MBL SHZ1234567 (job HXL/IMP/26-27/0001), house bills WOLSZSE12345678A:
+Invoice UTR:
+Deposit UTR: will follow
+"""
+
 
 def facts(subject: str, body: str) -> list[tuple[str, str, str | None]]:
     return [(c.stage, c.mbl_no, c.arg) for c in infer_codes(subject, body, hbl_pattern=HBL_PATTERN)]
@@ -58,6 +69,15 @@ def test_an_rtgs_confirmation_without_an_invoice_is_the_deposit_and_its_security
 def test_the_security_slip_names_the_house_bill_whose_slot_it_fills() -> None:
     assert facts("#DOHACK Fw: ODeX: Security slip - SD2026000000001", SLIP) == [
         ("document", "WOLSZSE12345678A", "security_odex_receipt:WOLSZSE12345678A")
+    ]
+
+
+def test_finances_reply_gives_both_utrs_and_not_the_lines_it_quotes() -> None:
+    # Protects: Finance's reply fills the invoice and deposit UTRs. Fails if a quoted empty line or words are read as a UTR.
+    subject = "Re: #DOHACK DO invoice INVDEMO000001 for MBL SHZ1234567: please pay CMA CGM"
+    assert facts(subject, FINANCE_REPLY) == [
+        ("utr", "SHZ1234567", "SBIN526000000001"),
+        ("utr", "SHZ1234567", "deposit:SBIN526000000002"),
     ]
 
 

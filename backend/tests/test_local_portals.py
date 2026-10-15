@@ -202,7 +202,10 @@ def test_the_odex_guide_from_invoice_request_to_invoice(web):
     request = items(web, "invoice_requests")[0]
     said = cma.verify_invoice(web.app.state.store, request["id"])
     assert "Rs. 54,720.68" in said  # one container, as on the sample DO receipt
-    assert items(web, "invoice_requests")[0]["status"] == "Released" and items(web, "outbox") == []
+    released = items(web, "invoice_requests")[0]
+    assert released["status"] == "Released"
+    # The liner's mail says so. No real one has been seen, so it carries the code line the app reads.
+    assert items(web, "outbox")[0]["codes"] == [["invoice", MBL, released["invoice_no"]]]
     with pytest.raises(cma.NotWaiting):
         cma.verify_invoice(web.app.state.store, request["id"])
 

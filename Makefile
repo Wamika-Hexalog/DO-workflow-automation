@@ -54,11 +54,13 @@ portals:
 portal-step:
 	cd backend && uv run python scripts/run_sop.py --job $(JOB) --step $(STEP) $(if $(HBL),--hbl $(HBL)) $(if $(SHOW),--show)
 
-# The app, the Inngest dev server and the local portals. Approving a DO request in
-# the app raises it on the local ODeX, in a visible, slowed-down browser.
+# The app, the Inngest dev server and the local portals, as one process: the local
+# CMA CGM's mail goes to the app, the app runs each portal step in a visible,
+# slowed-down browser, and ops approve the payments and the DO request in the app.
 demo-local:
 	cd frontend && npm run build
 	DO_ODEX_SOP=$(CURDIR)/backend/sops/local/odex/do_request_new.yaml DO_BROWSER_HEADLESS=0 BROWSER_SLOW_MO_MS=400 \
+		DO_AUTOMATE_PORTALS=1 DO_PORTALS_MAIL_TO=http://127.0.0.1:8000 \
 		$(MAKE) -j3 serve inngest portals
 
 # Stamps, bonds and letterhead artwork, built from the Docs folder the team shared.
