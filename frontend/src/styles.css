@@ -811,6 +811,7 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
 .step-no { display: inline-block; min-width: 2.4em; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .step-note { margin: 0; color: var(--ink-2); }
 .step-clock { margin: 0; font-size: 13px; color: var(--label); font-variant-numeric: tabular-nums; }
+.step-clock .badge.late { margin-left: 8px; background: var(--marker); color: var(--marker-ink); }
 .step .btn { justify-self: start; }
 .step-status.done { background: var(--selected); color: var(--label); }
 .step-status.needs_you { background: var(--marker); color: var(--marker-ink); }

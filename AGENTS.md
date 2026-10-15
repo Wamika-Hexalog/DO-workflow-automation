@@ -80,7 +80,9 @@ reformats files you did not change.
   Read the portal record first.
 - A browser failure raises `NonRetriableError`. Put the error on the task so ops can see it.
 - Wait for a person with a task. Wait for an e-mail by sending an event from the ingest function.
-  Chase with a delayed event and an attempt counter. Do not poll in a loop.
+  Chase with a delayed event and an attempt counter. Do not poll in a loop. The one exception is
+  the reminders (`app/reminders.py`): a cron check reads the clocks from the database, because
+  the local dev server forgets delayed events when it restarts.
 - A credential exists only in the environment. Do not put a secret in an event, a step result
   or an exception.
 

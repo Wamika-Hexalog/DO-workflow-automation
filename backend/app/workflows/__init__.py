@@ -17,6 +17,7 @@ from .payment import (
     create_rtgs_deposit_function,
     create_rtgs_payment_function,
 )
+from .reminders import create_digest_function, create_reminders_function
 
 
 def create_functions(rt: Runtime) -> list[inngest.Function]:
@@ -33,4 +34,6 @@ def create_functions(rt: Runtime) -> list[inngest.Function]:
         create_do_request_submit_function(rt),
         create_edo_collect_function(rt),
         create_email_inbound_function(rt),
+        create_reminders_function(rt),
+        create_digest_function(rt),
     ]

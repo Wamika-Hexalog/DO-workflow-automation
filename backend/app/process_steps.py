@@ -54,6 +54,7 @@ def _row(step: Step, state: str, note: str = "", *, at: datetime | None = None, 
     return {
         "number": step.number, "title": step.title, "actor": step.actor, "task_key": step.task_key, "state": state,
         "note": note, "at": at, "by": by, "waiting_on": waiting_on, "since": since,
+        "next_mail_at": None, "late": False,  # filled in by reminders.annotate
     }
 
 

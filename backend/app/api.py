@@ -16,7 +16,7 @@ import logging
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated, Any
 
 import httpx
@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import assemble, checks, containers, letters, pdfs, process_steps, service, tasks
+from . import assemble, checks, containers, letters, pdfs, process_steps, reminders, service, tasks
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
 from .runtime import Runtime
@@ -216,7 +216,10 @@ def shipment_out(
         folder=folder_out,
         building=service.is_building(review, shipment),
         tasks=[task_out(t) for t in shipment_tasks],
-        process=[ProcessStepOut(**row) for row in process_steps.steps_for(shipment, shipment_tasks, attached)],
+        process=[
+            ProcessStepOut(**row)
+            for row in reminders.annotate(process_steps.steps_for(shipment, shipment_tasks, attached), datetime.now(timezone.utc))
+        ],
         requested_on=shipment.requested_on,
         edo_received_on=shipment.edo_received_on,
         updated_at=service.aware(shipment.updated_at),

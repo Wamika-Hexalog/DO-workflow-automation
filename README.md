@@ -73,6 +73,8 @@ The process runs as small Inngest functions, each triggered by an event, in pyth
 | `do-folder-build` | `customs/task.completed` for the folder review | Builds the PDF, moves the job to DO folder ready, opens the ODeX DO request task, sends `customs/do.docs.ready` |
 | `do-request-submit` | `customs/task.completed` for the DO request | Raises the DO request on ODeX once per house bill, uploading the folder PDF, then moves the job to DO requested and sends `customs/do.request.submitted` |
 | `do-edo-collect` | `customs/do.edo.received` (CMA CGM's mail) | Collects the eDO from ODeX for each house bill; once all are in, moves the job to eDO received |
+| `do-reminders` | Every 10 minutes, or `customs/do.reminders.check` | Mails the reminders and escalations due on steps that wait too long (`backend/app/reminders.py` has the team's timings; `REMINDERS_*` name the contacts) |
+| `do-digest` | 09:30 IST each day, or `customs/do.digest.send` | Mails `DIGEST_TO` every open job, what it waits on and for how long, and what is late |
 
 [`PROCESS.md`](PROCESS.md) numbers the steps, from the pre-alert to the eDO. For each step, it gives the mail that starts it, what the app does and what it keeps.
 

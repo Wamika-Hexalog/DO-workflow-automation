@@ -233,6 +233,27 @@ The agent opens Documents → DO Request on ODeX, finds each HBL and downloads i
 
 **Workflow:** `do-edo-collect`, then `customs/do.case.completed`.
 
+## Reminders and the morning digest
+
+A step that waits too long mails its contact, as the team's table of 16 Oct 2026 sets it. The clock is the one on the Process page. The first reminder goes after the first time below, then one more at each repeat, until the end of the window. At the end of the window, one escalation goes to the next person, with the contact in Cc. A reminder missed while the app was off isn't sent late: only the latest one due goes out.
+
+| Step | First reminder | Then every | Window | Mail to | Escalate to |
+|---|---|---|---|---|---|
+| 3 CMA CGM releases the invoice | 6 h | 6 h | 24 h | Envogue's contact | the ops lead |
+| 6 Finance sends the UTRs | 1 h | 3 h | 12 h | the ops lead | the manager |
+| 7c CMA CGM mails the receipts | 12 h | 3 h | 24 h | CMA CGM's contact | the ops lead |
+| 8 Raise the security deposit | 1 h | 3 h | 24 h | the ops lead | the ops lead |
+| 9 CMA CGM approves the deposit | 1 h | 3 h | 24 h | ODeX's contact | the ops lead |
+| 10 Review and build | 1 h | 1 h | 6 h | the ops lead | the ops lead |
+| 11 DO request | 2 h | 3 h | 24 h | the ops lead | the manager |
+| 2 to 11, the whole run | - | - | 12 days | the ops lead | the manager |
+
+The hours are clock hours: nights and Sundays count. Each contact is a setting in `backend/.env` (`REMINDERS_OPS_LEAD`, `REMINDERS_MANAGER`, `REMINDERS_ENVOGUE_POC`, `REMINDERS_CMA_POC`, `REMINDERS_ODEX_POC`); a contact left empty gets no mail. Reminders don't copy `mail_cc`. The Process page shows, under each clock, when the next reminder goes, and marks a step "Late" once its first reminder is due.
+
+Each morning at 09:30 IST, the digest goes to `DIGEST_TO`: every open job, the steps that wait and for how long, and which are late.
+
+The check runs every 10 minutes. To run it now: send `customs/do.reminders.check` from the Inngest dashboard (http://localhost:8288). `customs/do.digest.send` sends the digest now.
+
 ## Not built yet
 
 - The refund: Counter Process → Deposit and Refund → Request Refund (the sheet's "Counter Process-Refund request").

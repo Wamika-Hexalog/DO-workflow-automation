@@ -33,6 +33,9 @@ class EventNames:
     DEPOSIT_SUBMITTED = "customs/do.deposit.submitted"
     DEPOSIT_APPROVED = "customs/do.deposit.approved"  # ODeX's slip is in for every house bill
     CASE_COMPLETED = "customs/do.case.completed"  # the eDO is in for every house bill
+    # Check now for reminders and send the digest now, besides their schedules.
+    REMINDERS_CHECK = "customs/do.reminders.check"
+    DIGEST_SEND = "customs/do.digest.send"
 
 
 # Graph retries a notification it did not get a 2xx for. Inngest dedups the inbound event on

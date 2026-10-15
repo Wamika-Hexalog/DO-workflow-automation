@@ -96,6 +96,8 @@ class ProcessStepOut(BaseModel):
     by: str | None
     waiting_on: Literal["ops", "finance", "cma"] | None
     since: datetime | None  # when the wait began: the clock
+    next_mail_at: datetime | None  # when the next reminder or the escalation goes (app/reminders.py)
+    late: bool  # its first reminder is due
 
 
 class ShipmentOut(BaseModel):

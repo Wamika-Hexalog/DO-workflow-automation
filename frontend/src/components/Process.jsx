@@ -62,7 +62,7 @@ export default function Process({ shipment, onShipment, say, goTo }) {
       <p className="section-sub">
         Every step of the job, in order, as PROCESS.md numbers it. The browser agent runs a step when its mail arrives,
         the payments wait for your approval, and a step that failed can be started again. A step that waits on you,
-        Finance or CMA CGM shows how long it has waited.
+        Finance or CMA CGM shows how long it has waited and when its next reminder goes.
       </p>
       <ol className="process">
         {shipment.process.map((step) => {
@@ -81,6 +81,8 @@ export default function Process({ shipment, onShipment, say, goTo }) {
               {step.waiting_on && step.since && (
                 <p className="step-clock">
                   Waiting on {WHO[step.waiting_on]} for {waited(step.since, now)} · since {fmtMoment(step.since)}
+                  {step.next_mail_at && ` · next reminder ${fmtMoment(step.next_mail_at)}`}
+                  {step.late && <span className="badge late">Late</span>}
                 </p>
               )}
               {step.state === "done" && step.at && (

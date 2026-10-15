@@ -93,6 +93,15 @@ class Settings:
     # such a mail is left unread.
     google_api_key: str = ""
     mail_ai_model: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
+    # Who hears about a step that waits too long (app/reminders.py), comma-separated
+    # addresses. A contact left empty gets no mail.
+    reminders_ops_lead: str = ""
+    reminders_manager: str = ""
+    reminders_envogue_poc: str = ""
+    reminders_cma_poc: str = ""
+    reminders_odex_poc: str = ""
+    # Who gets the morning digest of every open job.
+    digest_to: str = ""
     # Logins for the public tunnel, "user:password,user2:password2". Local requests need none.
     basic_auth_users: str = ""
 
@@ -148,5 +157,11 @@ class Settings:
             hbl_pattern=os.getenv("HBL_PATTERN", cls.hbl_pattern),
             google_api_key=os.getenv("GOOGLE_API_KEY", ""),
             mail_ai_model=os.getenv("DO_MAIL_AI_MODEL", cls.mail_ai_model),
+            reminders_ops_lead=os.getenv("REMINDERS_OPS_LEAD", ""),
+            reminders_manager=os.getenv("REMINDERS_MANAGER", ""),
+            reminders_envogue_poc=os.getenv("REMINDERS_ENVOGUE_POC", ""),
+            reminders_cma_poc=os.getenv("REMINDERS_CMA_POC", ""),
+            reminders_odex_poc=os.getenv("REMINDERS_ODEX_POC", ""),
+            digest_to=os.getenv("DIGEST_TO", ""),
             basic_auth_users=os.getenv("BASIC_AUTH_USERS", ""),
         )
