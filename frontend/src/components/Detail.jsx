@@ -3,26 +3,12 @@ import { api } from "../api.js";
 import { useAutosave } from "../hooks/useAutosave.js";
 import { profileDone, requiredFieldsDone, SECTIONS, sectionTitle } from "../lib/folder.js";
 import { fmtMoment, plural, splitLines } from "../lib/format.js";
-import DocStrip from "./DocStrip.jsx";
+import { ArrowLeftIcon, CheckIcon } from "./Icons.jsx";
+import Progress from "./Progress.jsx";
 import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
 import History from "./History.jsx";
 import Review from "./Review.jsx";
-
-function Check() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-      <path
-        d="M3 8.5l3.2 3.2L13 5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 function NavItem({ label, active, done, state, warn, onClick }) {
   return (
@@ -36,7 +22,7 @@ function NavItem({ label, active, done, state, warn, onClick }) {
       <span className={`state${done ? " done" : ""}${warn ? " warn" : ""}`}>
         {done ? (
           <>
-            <Check />
+            <CheckIcon size={14} />
             <span className="sr">Complete</span>
           </>
         ) : (
@@ -148,11 +134,6 @@ export default function Detail({
     if (key) setFocusKey(key);
   };
 
-  const pickSlot = (slotId) => {
-    goTo("documents");
-    setFocusSlot(slotId);
-  };
-
   const details = requiredFieldsDone(folder, shipment);
   const hbls = splitLines(values.hbl_nos);
   const built = shipment.folder;
@@ -206,10 +187,21 @@ export default function Detail({
       <header className="d-head">
         <div className="d-bar">
           <button type="button" className="btn btn-quiet back" onClick={leave}>
-            Back to board
+            <ArrowLeftIcon />
+            Delivery orders
           </button>
           <SaveState statuses={[shipmentEdits.status, profileEdits.status]} />
-          <span className="spacer" />
+        </div>
+        <div className="d-row">
+          <div className="d-id">
+            <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
+            <p className="d-meta">
+              <span className="mono">{shipment.job_no}</span>
+              <span>{vessel || "Vessel not set"}</span>
+              <span className={hbls.length ? "mono" : undefined}>{hbls.length ? `HBL ${hbls.join(" · ")}` : "HBL not set"}</span>
+              {shipment.owner && <span>{shipment.owner}</span>}
+            </p>
+          </div>
           <label className="stage-pick">
             <span>Stage</span>
             <select
@@ -231,21 +223,9 @@ export default function Detail({
             Review and build
           </button>
         </div>
-        <p className="eyebrow">
-          {shipment.job_no} · {folder.stageNames[shipment.status]}
-        </p>
-        <h2 className={`d-title${values.mbl_no ? "" : " muted"}`}>{values.mbl_no || "New job"}</h2>
-        <div className="d-meta">
-          <span><em>Vessel</em>{vessel || "Not set"}</span>
-          <span><em>HBL</em><span className={hbls.length ? "mono" : undefined}>{hbls.length ? hbls.join(", ") : "Not set"}</span></span>
-          {shipment.owner && <span><em>Owner</em>{shipment.owner}</span>}
-        </div>
         <div className="d-progress">
-          <DocStrip large slots={shipment.slots} onPick={pickSlot} />
+          <Progress ok={shipment.docs_ok} total={shipment.docs_total} />
           <p>
-            <strong>
-              {shipment.docs_ok} of {shipment.docs_total} documents ready.
-            </strong>{" "}
             {built && !built.stale && (
               <>
                 Folder built {fmtMoment(built.built_at)}.{" "}
@@ -254,7 +234,7 @@ export default function Detail({
                 </a>
               </>
             )}
-            {built && built.stale && "The built folder is out of date."}
+            {built && built.stale && <span className="attn">The built folder is out of date.</span>}
             {!built && (shipment.ready ? "Ready to review and build." : "The folder can be built once all are ready.")}
           </p>
         </div>

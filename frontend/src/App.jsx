@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.js";
 import Board from "./components/Board.jsx";
 import Detail from "./components/Detail.jsx";
+import Sidebar from "./components/Sidebar.jsx";
 import TopBar from "./components/TopBar.jsx";
 import { indexFolder } from "./lib/folder.js";
 
@@ -186,6 +187,10 @@ export default function App() {
     }
   }, [say]);
 
+  const showStage = useCallback((stageId) => {
+    document.getElementById(`col-${stageId}`)?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+  }, []);
+
   const reset = useCallback(async () => {
     try {
       await api.resetDemo();
@@ -222,40 +227,45 @@ export default function App() {
 
   const current = openId ? shipments.find((s) => s.id === openId) : null;
   return (
-    <div className="app">
-      <TopBar query={query} setQuery={setQuery} showSearch={!current} onNew={newShipment} onReset={reset} />
-      {current ? (
-        <Detail
-          key={current.id}
-          folder={folder}
-          profile={profile}
-          shipment={current}
-          section={section}
-          setSection={setSection}
-          focusKey={focusKey}
-          setFocusKey={setFocusKey}
-          focusSlot={focusSlot}
-          setFocusSlot={setFocusSlot}
-          onBack={back}
-          onMove={moveTo}
-          onBuild={build}
-          building={building}
-          onApproveDoRequest={approveDoRequest}
-          approving={approving}
-          onShipmentSaved={replaceShipment}
-          onProfileSaved={onProfileSaved}
-          say={say}
-        />
-      ) : (
-        <Board
-          stages={folder.stages}
-          shipments={shipments}
-          query={query}
-          focusId={boardFocus}
-          onOpen={open}
-          onMove={moveTo}
-        />
-      )}
+    <div className={`app${current ? " focused" : ""}`}>
+      {!current && <Sidebar stages={folder.stages} shipments={shipments} onStage={showStage} onReset={reset} />}
+      <div className="workspace">
+        {current ? (
+          <Detail
+            key={current.id}
+            folder={folder}
+            profile={profile}
+            shipment={current}
+            section={section}
+            setSection={setSection}
+            focusKey={focusKey}
+            setFocusKey={setFocusKey}
+            focusSlot={focusSlot}
+            setFocusSlot={setFocusSlot}
+            onBack={back}
+            onMove={moveTo}
+            onBuild={build}
+            building={building}
+            onApproveDoRequest={approveDoRequest}
+            approving={approving}
+            onShipmentSaved={replaceShipment}
+            onProfileSaved={onProfileSaved}
+            say={say}
+          />
+        ) : (
+          <>
+            <TopBar query={query} setQuery={setQuery} shipments={shipments} onNew={newShipment} />
+            <Board
+              stages={folder.stages}
+              shipments={shipments}
+              query={query}
+              focusId={boardFocus}
+              onOpen={open}
+              onMove={moveTo}
+            />
+          </>
+        )}
+      </div>
       <div className="toast-wrap" role="status" aria-live="polite">
         {toast && (
           <div className="toast" key={toast.at}>

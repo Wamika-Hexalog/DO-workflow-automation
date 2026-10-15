@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { fmtMoment, plural, SOURCE_LABEL } from "../lib/format.js";
+import { MoreIcon } from "./Icons.jsx";
 
 const STATUS = { ok: "Ready", flagged: "Needs a look", missing: "Missing" };
+
+const closeMenu = (e) => e.currentTarget.closest("details").removeAttribute("open");
 
 function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, goTo }) {
   const input = useRef(null);
@@ -13,6 +16,9 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
   // A per-HBL document can't take a file until its house bill number is entered.
   const perHbl = folder.documents.find((d) => d.key === slot.doc_key).per_hbl;
   const canAttach = slot.defined_source !== "fixed" && !(perHbl && !slot.hbl);
+
+  // The Missing badge already says it; the flag would only repeat it.
+  const flags = slot.flags.filter((f) => f.kind !== "missing");
 
   const run = async (label, action) => {
     setBusy(label);
@@ -30,7 +36,6 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
     run("Uploading…", () => api.attach(shipment.id, slot.id, file));
   };
 
-  const fieldGap = slot.flags.some((f) => f.kind === "fields");
   return (
     <li
       id={`slot-${slot.id}`}
@@ -51,92 +56,113 @@ function SlotRow({ index, slot, shipment, folder, highlight, onShipment, say, go
         attach(e.dataTransfer.files[0]);
       }}
     >
-      <span className="slot-num">{index + 1}</span>
+      <span className="slot-num">{String(index + 1).padStart(2, "0")}</span>
       <div className="slot-body">
-        <div className="slot-head">
-          <h4>
-            {slot.title}
-            {slot.hbl && <span className="slot-hbl">{slot.hbl}</span>}
-          </h4>
-          <span className={`status ${slot.status}`}>{busy || STATUS[slot.status]}</span>
-        </div>
+        <h4>
+          {slot.title}
+          {slot.hbl && <span className="slot-hbl">{slot.hbl}</span>}
+        </h4>
         <p className="slot-meta">
           {replaced ? "Signed copy uploaded in place of the app's letter" : SOURCE_LABEL[slot.defined_source]}
           {slot.stamp && !replaced && <> · stamped {folder.stamps[slot.stamp]}</>}
-        </p>
-        {slot.file && (
-          <p className="slot-file">
-            {slot.file.name} · {plural(slot.file.pages, "page")} · added {fmtMoment(slot.file.uploaded_at)}
-            {slot.file.checked_by_eye && " · checked by eye"}
-          </p>
-        )}
-        {slot.flags.length > 0 && (
-          <ul className="flags">
-            {slot.flags.map((flag, i) => (
-              <li key={i} className={`flag ${flag.kind}`}>
-                {flag.message}
-                {flag.can_check && (
-                  <button
-                    type="button"
-                    className="linkbtn"
-                    disabled={!!busy}
-                    onClick={() => run("Saving…", () => api.checkByEye(shipment.id, slot.id))}
-                  >
-                    I've checked it, it's right
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="slot-actions">
-          {slot.preview_url && (
-            <a className="linkbtn" href={`${slot.preview_url}?v=${shipment.updated_at}`} target="_blank" rel="noreferrer">
-              Preview{slot.stamp && !replaced ? " with stamp" : ""}
-            </a>
-          )}
           {slot.file && (
-            <a className="linkbtn" href={slot.file.original_url}>
-              Original file
-            </a>
-          )}
-          {fieldGap && (
-            <button type="button" className="linkbtn" onClick={() => goTo("shipment")}>
-              Fill in shipment details
-            </button>
-          )}
-          {canAttach && (
             <>
-              <input
-                ref={input}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.webp,application/pdf,image/*"
-                hidden
-                onChange={(e) => {
-                  attach(e.target.files[0]);
-                  e.target.value = "";
-                }}
-              />
-              <button type="button" className="btn" disabled={!!busy} onClick={() => input.current.click()}>
-                {slot.file ? "Replace file" : generated ? "Upload a signed copy instead" : "Attach file"}
-              </button>
+              {" "}· {slot.file.name} · {plural(slot.file.pages, "page")} · added {fmtMoment(slot.file.uploaded_at)}
+              {slot.file.checked_by_eye && " · checked by eye"}
             </>
           )}
-          {slot.file && (
-            <button
-              type="button"
-              className="btn btn-quiet"
-              disabled={!!busy}
-              onClick={() => run("Removing…", () => api.remove(shipment.id, slot.id))}
-            >
-              {replaced ? "Use the app's letter" : "Remove"}
-            </button>
-          )}
-        </div>
+        </p>
+      </div>
+      <span className={`badge ${slot.status}`}>{busy || STATUS[slot.status]}</span>
+      <div className="slot-actions">
+        {canAttach && (
+          <input
+            ref={input}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.webp,application/pdf,image/*"
+            hidden
+            onChange={(e) => {
+              attach(e.target.files[0]);
+              e.target.value = "";
+            }}
+          />
+        )}
         {canAttach && !slot.file && slot.defined_source === "upload" && (
-          <p className="drop-hint">Or drop the PDF or scan anywhere on this row.</p>
+          <button type="button" className="btn btn-sm" disabled={!!busy} onClick={() => input.current.click()}>
+            Attach file
+          </button>
+        )}
+        {slot.preview_url && (
+          <a className="btn btn-sm" href={`${slot.preview_url}?v=${shipment.updated_at}`} target="_blank" rel="noreferrer">
+            Preview
+          </a>
+        )}
+        {slot.file && (
+          <a className="btn btn-sm" href={slot.file.original_url}>
+            Original
+          </a>
+        )}
+        {(slot.file || (canAttach && generated)) && (
+          <details className="menu">
+            <summary className="btn btn-sm btn-icon" aria-label={`More actions for ${slot.title}`} title="More actions">
+              <MoreIcon />
+            </summary>
+            <div className="menu-pop" role="menu">
+              {canAttach && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!!busy}
+                  onClick={(e) => {
+                    closeMenu(e);
+                    input.current.click();
+                  }}
+                >
+                  {slot.file ? "Replace document" : "Upload a signed copy instead"}
+                </button>
+              )}
+              {slot.file && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  disabled={!!busy}
+                  onClick={(e) => {
+                    closeMenu(e);
+                    run("Removing…", () => api.remove(shipment.id, slot.id));
+                  }}
+                >
+                  {replaced ? "Use the app's letter" : "Remove"}
+                </button>
+              )}
+            </div>
+          </details>
         )}
       </div>
+      {flags.length > 0 && (
+        <ul className="flags">
+          {flags.map((flag, i) => (
+            <li key={i} className={`flag ${flag.kind}`}>
+              {flag.message}
+              {flag.can_check && (
+                <button
+                  type="button"
+                  className="linkbtn"
+                  disabled={!!busy}
+                  onClick={() => run("Saving…", () => api.checkByEye(shipment.id, slot.id))}
+                >
+                  I've checked it, it's right
+                </button>
+              )}
+              {flag.kind === "fields" && (
+                <button type="button" className="linkbtn" onClick={() => goTo("shipment")}>
+                  Fill in shipment details
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
