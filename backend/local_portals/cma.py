@@ -12,13 +12,16 @@ local_portals/mail.py hands the outbox to the app when the demo asks for it.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import documents, mail
+from pypdf import PdfReader
+
+from . import documents, mail, settings
 from .settings import ACCOUNT_NAME
 from .store import Store, next_number, now
 
@@ -71,30 +74,64 @@ def _email(
     })
 
 
+# CMA CGM's import invoice, as its PDF reads: the number ("INIUPC..."; the carrier number
+# looks alike), the total and the date.
+_INVOICE_NO = re.compile(r"(?<!Carrier No\. )\b(IN[A-Z]{2,6}\d{6,10})\b")
+_INVOICE_TOTAL = re.compile(r"Total Amount:\s*([\d,]+\.\d{2})")
+_INVOICE_DATE = re.compile(r"\bDate:\s*(\d{2}-[A-Za-z]{3}-\d{4})\b")
+
+
+def _real_invoice(bl_no: str) -> tuple[str, float, str, str, bytes] | None:
+    """The liner's real invoice for the B/L, when the demo has one: its number, total,
+    date, file name and PDF."""
+    folder = settings.real_invoices_dir()
+    if folder is None or not folder.is_dir():
+        return None
+    for path in sorted(folder.glob("*.pdf")):
+        try:
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+        except Exception:  # noqa: BLE001 - an unreadable PDF just isn't the invoice
+            continue
+        number, total = _INVOICE_NO.search(text), _INVOICE_TOTAL.search(text)
+        if bl_no not in text or "INVOICE" not in text.upper() or not number or not total:
+            continue
+        on = _INVOICE_DATE.search(text)
+        day = datetime.strptime(on.group(1), "%d-%b-%Y").date() if on else date.today()
+        return number.group(1), float(total.group(1).replace(",", "")), day.isoformat(), path.name, path.read_bytes()
+    return None
+
+
 def verify_invoice(store: Store, item_id: str) -> str:
     """The liner checks the invoice request and releases its DO invoice on ODeX,
-    where ops download it (BL Status → the request → its attachment)."""
+    where ops download it (BL Status → the request → its attachment). A demo shipment
+    with its real invoice (LOCAL_ODEX_INVOICES_DIR) gets that one."""
     with store.change() as data:
         request = _waiting(data, "invoice_requests", item_id)
-        count = max(1, len(request.get("containers") or []))
-        lines = [
-            (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
-            if basis == "per container"
-            else (text, basis, rate)
-            for text, basis, rate in TARIFF
-        ]
-        subtotal = round(sum(amount for *_, amount in lines), 2)
-        gst = round(subtotal * GST_RATE, 2)
-        total = round(subtotal + gst, 2)
-        invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
-        pdf = documents.invoice_pdf(
-            invoice_no=invoice_no, on=date.today().isoformat(), liner=request["liner"], bl_no=request["bl_no"],
-            containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst, total=total,
-        )
-        file_id = store.add_file(data, pdf, f"{invoice_no}.pdf")
+        real = _real_invoice(request["bl_no"])
+        if real is not None:
+            invoice_no, total, invoice_date, name, pdf = real
+        else:
+            count = max(1, len(request.get("containers") or []))
+            lines = [
+                (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
+                if basis == "per container"
+                else (text, basis, rate)
+                for text, basis, rate in TARIFF
+            ]
+            subtotal = round(sum(amount for *_, amount in lines), 2)
+            gst = round(subtotal * GST_RATE, 2)
+            total = round(subtotal + gst, 2)
+            invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
+            invoice_date, name = date.today().isoformat(), f"{invoice_no}.pdf"
+            pdf = documents.invoice_pdf(
+                invoice_no=invoice_no, on=invoice_date, liner=request["liner"], bl_no=request["bl_no"],
+                containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst,
+                total=total,
+            )
+        file_id = store.add_file(data, pdf, name)
         request.update(
             status="Released", invoice_no=invoice_no, amount=total, invoice_file=file_id,
-            invoice_date=date.today().isoformat(), answered_at=now(),
+            invoice_date=invoice_date, answered_at=now(),
         )
         # As ODeX's notice reads (app/email_infer.py knows it). The bill-to party is the
         # consignee manifested on the MBL.

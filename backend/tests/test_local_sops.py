@@ -48,6 +48,7 @@ def portals(tmp_path, monkeypatch):
     """The local portals, served on a free port for the browser to open."""
     for name, value in LOCAL_ODEX_LOGIN.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LOCAL_ODEX_INVOICES_DIR", raising=False)
     app = create_portals(tmp_path / "portals", autoplay=False)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)

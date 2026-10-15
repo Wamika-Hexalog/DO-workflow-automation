@@ -68,9 +68,11 @@ def log_in(client: TestClient, user: str = "hexalog-demo", password: str = "loca
 
 @pytest.fixture(autouse=True)
 def demo_login(monkeypatch):
-    """The local ODeX takes its published demo login here, whatever backend/.env says."""
+    """The local ODeX takes its published demo login here, and has no real invoices,
+    whatever backend/.env says."""
     monkeypatch.delenv("LOCAL_ODEX_USERNAME", raising=False)
     monkeypatch.delenv("LOCAL_ODEX_PASSWORD", raising=False)
+    monkeypatch.delenv("LOCAL_ODEX_INVOICES_DIR", raising=False)
 
 
 @pytest.fixture()
@@ -177,6 +179,22 @@ def test_odex_signs_in_with_the_password_then_the_company(tmp_path):
             follow_redirects=False,
         )
         assert away.headers["location"] == "/odex/login/company?next=/odex/home"
+
+
+def test_a_demo_shipment_gets_its_real_invoice_from_the_local_odex(web, tmp_path, monkeypatch):
+    # Protects: the local ODeX releases the liner's real invoice for its B/L. Fails if the demo invoice goes out instead, or the number, total or date is misread.
+    real = tmp_path / "real-invoices"
+    real.mkdir()
+    (real / "UPC00000001.pdf").write_bytes(make_pdf(
+        f"Date: 01-OCT-2026 INIUPC00000001 ORIGINAL* IMPORT INVOICE Bill of Lading: {MBL} "
+        "INRTotal Amount: 54,720.68 Carrier No. INCMA0000001"
+    ))
+    monkeypatch.setenv("LOCAL_ODEX_INVOICES_DIR", str(real))
+    ask_invoice(web)
+    cma.verify_invoice(web.app.state.store, items(web, "invoice_requests")[0]["id"])
+    released = items(web, "invoice_requests")[0]
+    assert (released["invoice_no"], released["amount"], released["invoice_date"]) == ("INIUPC00000001", 54720.68, "2026-10-01")
+    assert web.app.state.store.file(released["invoice_file"])[1].read_bytes() == (real / "UPC00000001.pdf").read_bytes()
 
 
 def test_the_odex_guide_from_invoice_request_to_invoice(web):

@@ -9,3 +9,5 @@ Docs/
 backend/assets/private/
 .env
 !.env.example
+# Real shipment documents used in demos: never commit.
+demo shipment/
