@@ -1,21 +1,20 @@
-"""The local ODeX: its sessions, its files, and the plain pages for the steps no
+"""The local ODeX: its sessions, its files, and the plain pages for the step no
 screenshot shows yet (the SOP sheet of DO PROCESS FLOW E2E.xlsx):
 
     Counter Process → Deposit and Refund → New Deposit
-    e-Payment → DO Request → New DO Request
 
-The login and the pages the team's ODeX guide shows (from the services page to the
-invoice) are screenshots with live buttons over them, in odex_screens.py.
+The login and the pages the team's ODeX guides show (the invoice, from the services
+page on, and the DO request) are screenshots with live buttons over them, in
+odex_screens.py.
 
 Requests then wait for CMA CGM, which the control panel plays. Every form answers
 with an #outcome element the SOPs read (pages.outcome), and each list marks its
 rows with data-bl, data-ref and data-status for the SOPs that check a request and
-download its slip or eDO. These pages' real fields aren't known yet: they follow
-the SOP sheet and the sample documents.
+download its slip or eDO. The deposit pages' real fields aren't known yet: they
+follow the SOP sheet and the sample documents.
 """
 from __future__ import annotations
 
-import json
 import secrets
 from datetime import datetime, timedelta
 from typing import Any
@@ -35,18 +34,15 @@ SESSION_HOURS = 12  # how long a sign-in lasts
 LINERS = ("CMA CGM", "COSCO", "Hapag-Lloyd", "Maersk", "MSC", "ONE")
 PAYMENT_MODES = ("RTGS/NEFT", "DD/Pay Order", "Cheque")
 REFUND_TO = ("Consignee", "Third Party")
-DO_TYPES = ("E-DO", "D/O")
-DELIVERY_TYPES = ("Factory De-stuff", "CFS De-stuff", "LCL", "DPD")
-DOC_TYPES = ("DO folder (combined PDF)", "Bill of lading", "Receipt", "NOC", "Other")
 INVOICES = "/odex/epayment/liner-requests"
 DEPOSITS = "/odex/counter-process/deposit-refund"
-DO_REQUESTS = "/odex/e-payment/do-request"
+DO_REQUESTS = "/odex/epayment/do-request"
 
 MENU = pages.menu(
     [
         ("request", "Request", [("liner-request", "Liner Requests", INVOICES)]),
         ("counter-process", "Counter Process", [("deposit-refund", "Deposit and Refund", DEPOSITS)]),
-        ("e-payment", "e-Payment", [("do-request", "DO Request", DO_REQUESTS)]),
+        ("documents", "Documents", [("do-request", "DO Request", DO_REQUESTS)]),
     ]
 )
 
@@ -272,131 +268,4 @@ async def create_deposit(request: Request) -> Response:
         user, "New Deposit", path, back, ref=ref,
         message=f"Deposit {ref} submitted for B/L {bl_no}: Rs. {pages.money(amount or 0)}, UTR {utr}. "
         "It waits for CMA CGM to approve it.",
-    )
-
-
-# e-Payment → DO Request ---------------------------------------------------------
-
-
-@router.get("/e-payment/do-request")
-def do_requests(request: Request) -> Response:
-    user = current_user(request)
-    if user is None:
-        return to_login(request)
-    with store_of(request).read() as data:
-        items = list(reversed(data["do_requests"]))
-    rows = [
-        _row(r, [
-            esc(r["ref"]), esc(r["bl_no"]), esc(r["do_type"]), esc(r["delivery_type"]),
-            "<br>".join(esc(d["name"]) for d in r["documents"]),
-            pages.status(r["status"]) + (f'<div class="hint">{esc(r["reason"])}</div>' if r.get("reason") else ""),
-            _file_link(r.get("edo_file"), "Download eDO", "download-edo"), _when(r),
-        ])
-        for r in items
-    ]
-    body = f"""<h1>DO Request</h1><p class="path">e-Payment → DO Request</p>
-<p><a class="btn primary" id="new-do-request" href="{DO_REQUESTS}/new">New DO Request</a></p>
-{pages.table("do-requests", ["Request no.", "B/L no.", "DO type", "Delivery", "Documents", "Status", "eDO", "Submitted"], rows, "No DO requests yet.")}
-<p class="hint">Once CMA CGM issues the delivery order, the eDO can be downloaded here.</p>"""
-    return _page("DO Request", body, user)
-
-
-def _rows_script() -> str:
-    options = "".join(f'<option value="{esc(t)}">{esc(t)}</option>' for t in DOC_TYPES)
-    return f"""
-const docTypes = {json.dumps('<option value="">Select</option>' + options)};
-let rowCount = 0;
-document.getElementById('addRow').addEventListener('click', () => {{
-  rowCount += 1;
-  const row = document.createElement('tr');
-  row.dataset.row = String(rowCount);
-  row.innerHTML = `<td>${{rowCount}}</td>`
-    + `<td><select name="docType${{rowCount}}" class="doc-type">${{docTypes}}</select></td>`
-    + `<td><input type="file" name="docFile${{rowCount}}" class="doc-file" accept="application/pdf,.pdf"></td>`;
-  document.querySelector('#docRows tbody').append(row);
-}});
-"""
-
-
-@router.get("/e-payment/do-request/new")
-def new_do_request_page(request: Request) -> Response:
-    user = current_user(request)
-    if user is None:
-        return to_login(request)
-    body = f"""<h1>New DO Request</h1><p class="path">e-Payment → DO Request → New DO Request</p>
-<div class="card"><form method="post" action="{DO_REQUESTS}/new" id="do-request-form" class="grid" enctype="multipart/form-data">
-{pages.select("liner", "Liner", LINERS)}
-{pages.field("blNo", "B/L number", hint="The house B/L (HBL), not the master B/L")}
-{pages.select("doType", "DO type", DO_TYPES)}
-{pages.select("deliveryType", "Delivery type", DELIVERY_TYPES)}
-{pages.field("containers", "Container numbers", hint="Separate several with commas")}
-{pages.field("remarks", "Remarks")}
-<fieldset><legend>Documents</legend>
-<div class="wide"><div class="table-wrap"><table id="docRows"><thead><tr><th>#</th><th>Document type</th><th>File (PDF)</th></tr></thead><tbody></tbody></table></div>
-<p><button type="button" class="btn small" id="addRow">Add Row</button></p></div>
-</fieldset>
-<div class="actions"><button class="btn primary" id="submit" type="submit">Submit DO Request</button>
-<a class="btn" href="{DO_REQUESTS}">Cancel</a></div>
-</form></div>"""
-    return _page("New DO Request", body, user, script=_rows_script())
-
-
-@router.post("/e-payment/do-request/new")
-async def create_do_request(request: Request) -> Response:
-    user = current_user(request)
-    if user is None:
-        return to_login(request)
-    form = await request.form()
-    liner, do_type, delivery = forms.text(form, "liner"), forms.text(form, "doType"), forms.text(form, "deliveryType")
-    bl_no, containers = forms.code(forms.text(form, "blNo")), forms.containers(forms.text(form, "containers"))
-    problems = []
-    if liner not in LINERS:
-        problems.append("Choose the liner.")
-    if not forms.BL.match(bl_no):
-        problems.append("Enter the house B/L number.")
-    if do_type not in DO_TYPES:
-        problems.append("Choose the DO type.")
-    if delivery not in DELIVERY_TYPES:
-        problems.append("Choose the delivery type.")
-    if bad := [c for c in containers if not forms.CONTAINER.match(c)]:
-        problems.append(f"Not a container number: {', '.join(bad)}.")
-    documents = []
-    rows = sorted(int(k[7:]) for k in form.keys() if k.startswith("docFile") and k[7:].isdigit())
-    for row in rows:
-        key = f"docFile{row}"
-        attached = await forms.attachment(form, key, f"document in row {row}", problems, required=False)
-        if attached is None:
-            continue
-        doc_type = forms.text(form, f"docType{row}")
-        if doc_type not in DOC_TYPES:
-            problems.append(f"Choose the document type in row {row}.")
-        documents.append((doc_type, *attached))
-    if not documents and not any("row" in p for p in problems):
-        problems.append("Add a row and attach the DO documents.")
-    back = (DO_REQUESTS, "Back to DO Request")
-    path = "e-Payment → DO Request → New DO Request"
-    store = store_of(request)
-    try:
-        if problems:
-            raise forms.Rejected(*problems)
-        with store.change() as data:
-            for earlier in data["do_requests"]:
-                if earlier["bl_no"] == bl_no and earlier["status"] != "Rejected":
-                    raise forms.Rejected(f"A DO request for B/L {bl_no} is already raised: {earlier['ref']} ({earlier['status']}).")
-            ref = next_ref(data, "DOR", 4)
-            data["do_requests"].append({
-                "id": secrets.token_hex(6), "ref": ref, "liner": liner, "bl_no": bl_no, "do_type": do_type,
-                "delivery_type": delivery, "containers": containers, "remarks": forms.text(form, "remarks"),
-                "documents": [
-                    {"doc_type": kind, "name": name, "size": len(content), "file": store.add_file(data, content, name)}
-                    for kind, name, content in documents
-                ],
-                "status": "Submitted", "created_at": now(), "by": user,
-            })
-    except forms.Rejected as rejected:
-        return _answer(user, "New DO Request", path, back, problems=rejected.problems)
-    files = ", ".join(f"{name} ({len(content):,} bytes)" for _, name, content in documents)
-    return _answer(
-        user, "New DO Request", path, back, ref=ref,
-        message=f"DO request {ref} submitted for B/L {bl_no} with {files}. It waits for CMA CGM to issue the DO.",
     )

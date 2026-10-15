@@ -83,8 +83,12 @@ def _details(kind: str, item: dict[str, Any], data: dict[str, Any]) -> str:
         ]
     else:
         lines = [
-            f"{esc(item['do_type'])}, {esc(item['delivery_type'])}",
-            " ".join(_file(d["file"], data) for d in item["documents"]),
+            ", ".join(
+                esc(item.get(key) or "")
+                for key in ("liner", "location", "cargo_type", "destuff_type", "remarks") if item.get(key)
+            ),
+            f"Factory: {esc(item['factory_address'])} {esc(item['factory_pin'])}" if item.get("factory_address") else "",
+            " ".join(f"{esc(d['doc_type'])}: {_file(d['file'], data)}" for d in item["documents"]),
             _file(item.get("edo_file"), data),
         ]
     if item.get("reason"):

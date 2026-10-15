@@ -142,9 +142,15 @@ def test_a_deposit_refunded_to_the_cha_carries_hexalogs_noc(api):
 def test_the_do_request_needs_an_up_to_date_folder(api, engine):
     s = build(api, engine, attach_everything(api, new_shipment(api)))
     request = params(api, s, DO_REQUEST)[HBL]
-    assert request["hbl_no"] == HBL and request["mbl_no"] == MBL
-    assert (request["do_type"], request["delivery_type"]) == ("E-DO", "Factory De-stuff")
-    assert Path(request["folder_pdf_path"]).is_file()
+    assert (request["hbl_no"], request["odex_location"], request["liner"]) == (HBL, "NCR", "CMA CGM")
+    # The job's delivery type and endorsement, in ODeX's words.
+    assert (request["destuff_type"], request["seaway_bl"]) == ("Factory", "Yes")
+    # The team's guide fills the rest the same way every time, and leaves the runner boy empty.
+    assert (request["remarks"], request["factory_pin"]) == ("Forwarder Letter attached to authorise CHA", "122015")
+    assert request["hss_customer_name"] == "HEXALOG GLOBAL SUPPLY CHAINS PVT LTD"
+    assert (request["runner_boy"], request["runner_mobile"]) == ("", "")
+    folder = Path(request["folder_pdf_path"])
+    assert folder.is_file() and folder.name == f"ALL {HBL[-4:]}.pdf"
 
     set_values(api, s, voyage="0FBI5W1MB")
     with pytest.raises(service.NotReady, match="changed after it was built"):

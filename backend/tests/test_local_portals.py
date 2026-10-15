@@ -23,7 +23,7 @@ from local_portals.settings import ACCOUNT_NAME
 INVOICES = "/odex/epayment/liner-requests"
 BL_STATUS = "/odex/epayment/bl-status"
 DEPOSITS = "/odex/counter-process/deposit-refund"
-DO_REQUESTS = "/odex/e-payment/do-request"
+DO_REQUESTS = "/odex/epayment/do-request"
 RTGS = "/cma-rtgs/index.php/Finance/RTGS/NewRequest/"
 
 # Request New Invoice, as the team's ODeX guide fills it (step 5).
@@ -42,9 +42,13 @@ DEPOSIT_FORM = dict(
     paymentDate="2026-10-01", bankName="ICICI BANK", refundTo="Third Party",
     thirdPartyName="JAY SHRI RAM DARBAR LOGISTICS (P) LTD",
 )
+# The DO request, as the team's second guide fills it ("DO final steps corrected").
 DO_REQUEST_FORM = dict(
-    liner="CMA CGM", blNo=HBL, doType="E-DO", deliveryType="Factory De-stuff", containers="TCNU5191327",
-    remarks="HXL/IMP/26-27/0431", docType1="DO folder (combined PDF)",
+    bl_no=HBL, liner_issuer="CMA CGM AGENCIES INDIA PRIVATE LIMITED", location="NCR", cargo_type="General",
+    destuff_type="Factory", seaway_bl="Yes", payment_not_via_odex="1",
+    remarks="Forwarder Letter attached to authorise CHA", hss_customer_name="HEXALOG GLOBAL SUPPLY CHAINS PVT LTD",
+    factory_address="PLOT NOS. 92-93, AIHP MILLENIUM UDYOG VIHAR, PHASE-4", factory_pin="122015",
+    doc_name_1="All document in a single pdf",
 )
 
 
@@ -321,27 +325,55 @@ def test_a_turned_down_deposit_can_be_raised_again(web):
     assert retry["status"] == "accepted"
 
 
-def test_a_do_request_takes_the_folder_through_add_row(web):
-    no_rows = {k: v for k, v in DO_REQUEST_FORM.items() if k != "docType1"}
-    assert "Add a row and attach the DO documents." in outcome(web.post(f"{DO_REQUESTS}/new", data=no_rows))["message"]
+def test_the_do_request_follows_the_teams_second_guide(web):
+    # Step 2: Documents → DO Request, on ePayment's main page.
+    assert f'id="menu-do-request" href="{DO_REQUESTS}"' in web.get("/odex/epayment?location=NCR").text
+    # Step 3: the list opens behind an advertisement, which closes.
+    listing = web.get(DO_REQUESTS).text
+    assert 'id="advertisement"' in listing and 'id="ad-close"' in listing and 'id="new-do-request"' in listing
+    # Step 4: ODeX fills in the Liner/FF-Issuer from the BL No.
+    assert web.get(f"{DO_REQUESTS}/bl-liner?bl_no={HBL}").json() == {"liner": "CMA CGM AGENCIES INDIA PRIVATE LIMITED"}
+    form = web.get(f"{DO_REQUESTS}/new").text
+    for field in ("bl-no", "liner-issuer", "location", "cargo-type", "destuff-type", "seaway-bl", "payment-not-via-odex",
+                  "runner-boy", "mobile-no", "remarks", "hss-customer-name", "factory-address", "factory-pin", "add-row", "save"):
+        assert f'id="{field}"' in form, field
 
-    folder = pdf("HXL-IMP-26-27-0431-GGZ3193024-DO-folder.pdf", f"DO FOLDER {MBL}")
-    accepted = outcome(web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"docFile1": folder}))
-    assert accepted["status"] == "accepted"
-    assert "HXL-IMP-26-27-0431-GGZ3193024-DO-folder.pdf" in accepted["message"]
-    twice = outcome(web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"docFile1": folder}))
+    # What the page checks before saving.
+    folder = pdf(f"ALL {HBL[-4:]}.pdf", f"DO FOLDER {MBL} {HBL}")
+    no_rows = {k: v for k, v in DO_REQUEST_FORM.items() if k != "doc_name_1"}
+    assert "Add a row and attach the documents" in outcome(web.post(f"{DO_REQUESTS}/new", data=no_rows))["message"]
+    unpaid = {**DO_REQUEST_FORM, "payment_not_via_odex": None}
+    said = outcome(web.post(f"{DO_REQUESTS}/new", data={k: v for k, v in unpaid.items() if v}, files={"doc_file_1": folder}))
+    assert "tick Payment not via ODeX" in said["message"]
+    no_liner = {**DO_REQUEST_FORM, "liner_issuer": ""}
+    assert "Liner/FF-Issuer is empty" in outcome(web.post(f"{DO_REQUESTS}/new", data=no_liner, files={"doc_file_1": folder}))["message"]
+    unnamed = {**DO_REQUEST_FORM, "doc_name_1": ""}
+    assert "Document Name in row 1" in outcome(web.post(f"{DO_REQUESTS}/new", data=unnamed, files={"doc_file_1": folder}))["message"]
+
+    # Step 5: SAVE, with the folder as "All document in a single pdf".
+    saved = web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"doc_file_1": folder})
+    accepted = outcome(saved)
+    assert accepted["status"] == "accepted" and f"ALL {HBL[-4:]}.pdf" in accepted["message"]
+    assert 'id="advertisement"' not in saved.text  # the list after SAVE shows no advertisement
+    request = items(web, "do_requests")[0]
+    assert (request["bl_no"], request["destuff_type"], request["factory_pin"]) == (HBL, "Factory", "122015")
+    assert request["documents"][0]["doc_type"] == "All document in a single pdf"
+    twice = outcome(web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"doc_file_1": folder}))
     assert twice["status"] == "rejected" and accepted["reference"] in twice["message"]
 
-    cma.issue_edo(web.app.state.store, items(web, "do_requests")[0]["id"])
-    link = re.search(r'class="download-edo" href="([^"]+)"', web.get(DO_REQUESTS).text)[1]
+    # CMA CGM issues the delivery order; the list offers the eDO on the B/L's row.
+    cma.issue_edo(web.app.state.store, request["id"])
+    found = web.get(f"{DO_REQUESTS}?bl_no={HBL}").text
+    assert f'data-search="{HBL}"' in found and f'data-bl="{HBL}"' in found and 'data-status="DO Issued"' in found
+    link = re.search(r'class="download-edo" href="([^"]+)"', found)[1]
     edo = text_of(web.get(link).content)
-    assert "DELIVERY ORDER" in edo and HBL in edo and "TCNU5191327" in edo
+    assert "DELIVERY ORDER" in edo and HBL in edo
 
 
 def test_autoplay_answers_each_request_once_it_has_waited(web):
     web.post("/control/autoplay", data={"on": "1", "delay_seconds": "5"})
     ask_invoice(web)
-    web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"docFile1": pdf()})
+    web.post(f"{DO_REQUESTS}/new", data=DO_REQUEST_FORM, files={"doc_file_1": pdf()})
     player = web.app.state.autoplay
     assert player.tick(datetime.now()) == []
     done = player.tick(datetime.now() + timedelta(seconds=6))

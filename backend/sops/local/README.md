@@ -6,7 +6,7 @@ The local RTGS page copies CMA CGM's real one, from its HTML: the same ids, fiel
 
 The local ODeX's login is the real ODeX India login page: its screenshot (`make odex-login-screen` takes it, without typing anything), with live fields under the real ids, and the real page's script. It draws and checks the captcha the same way, then asks for the company, and asks before closing another session of the same login. So the SOPs' login steps are the real ones.
 
-The local ODeX shows the team's step-by-step guide, "Delivery Order Request-First step 1": each page is the guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guide in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. The steps the guide doesn't reach yet (the deposit and the DO request) are plain pages that follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx`. See [Moving to the real sites](#moving-to-the-real-sites).
+The local ODeX shows the team's step-by-step guides: "Delivery Order Request-First step 1" for the invoice, and "DO final steps corrected" for the DO request. Each page is a guide's screenshot, with live buttons and fields over only what the process clicks or types. The screenshots show a real ODeX account, so they stay out of git: `make assets` takes them from the guides in `Docs/Docs/` into `assets/private/odex/`. Without them, each page shows a grey stand-in with the same live parts, so the SOPs and the tests still run. The deposit, which no guide covers yet, has plain pages that follow the SOP sheet of `DO PROCESS FLOW E2E.xlsx`. See [Moving to the real sites](#moving-to-the-real-sites).
 
 ## Run them
 
@@ -118,23 +118,36 @@ It reads back the deposit's reference and status (`deposit_ref`, `deposit_status
 
 ### 5. Raise the DO request: `odex_do_request_new`
 
-ODeX → e-Payment → DO Request → New DO Request. Once per house B/L. This is the SOP the app's `do-request-submit` workflow runs when `DO_ODEX_SOP` points to it.
+The team's guide "DO final steps corrected", once the DO folder is ready:
+
+1. On the services page, choose ePayment's location (NCR for ICD Tughlakabad) and click its arrow.
+2. Documents → DO Request.
+3. Close the advertisement, then NEW DO REQUEST.
+4. Fill in the BL information.
+5. Add Row, attach the DO folder, and SAVE.
+
+It runs once per house B/L. This is the SOP the app's `do-request-submit` workflow runs when `DO_ODEX_SOP` points to it.
 
 | Page field | Filled with |
 |---|---|
-| Liner | Fixed details: Liner on ODeX (`odex_liner`) |
-| B/L number | The house B/L, not the MBL |
-| DO type | Job: D/O or E-DO (`do_type`) |
-| Delivery type | Job: Delivery type (`delivery_type`) |
-| Container numbers | Job: Container nos. (`containers`) |
-| Remarks | The job number |
-| Documents (Add Row) | The built DO folder PDF, which must be up to date. It's the same file for every house B/L of the MBL |
+| BL No. | The house B/L. ODeX's note on the page asks for one request per HBL once the IGM is filed for it. |
+| Liner/FF-Issuer | Filled in by ODeX from the BL No.; the SOP checks it's the liner on ODeX (`odex_liner`) |
+| Location | Job: ODeX location (`odex_location`) |
+| Cargo Type | General, every time |
+| DE Stuffing Type | Job: Delivery type, in ODeX's words: Factory De-stuff is Factory, CFS De-stuff and LCL are CFS |
+| Seaway BL/Telex BL | Job: Endorsed. Yes for a waybill or a telex release, No for an OBL |
+| Payment not via ODeX | Ticked: Finance pays CMA CGM by RTGS |
+| Runner Boy, Mobile No. | Fixed details (`odex_runner_boy`, `odex_runner_mobile`). Empty in the guide, so they're skipped while empty |
+| Remarks | Fixed details: "Forwarder Letter attached to authorise CHA" (`odex_do_remarks`) |
+| HSS Customer Name | Fixed details: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD (`odex_hss_customer`) |
+| Factory Address, Factory Location PIN | Fixed details: the guide's address and 122015 (`factory_address`, `factory_pin`) |
+| Document List (Add Row) | "All document in a single pdf": the built DO folder, which must be up to date. It's the same file for every house B/L of the MBL, named as the team names it: `ALL 157B.pdf` for HBL …157B |
 
 It reads back ODeX's request number (`odex_request_ref`), which the app logs on the job.
 
 ### 6. Check the DO request, download the eDO: `odex_do_request_status`
 
-ODeX → e-Payment → DO Request. Once per house B/L. This step only reads, so it's safe to run again. It reads back the request's reference and status. Once CMA CGM has issued the delivery order, it also downloads the eDO to `data/files/<job>/portal/<HBL>-eDO.pdf`.
+ePayment → Documents → DO Request, as in step 5, then search the house B/L. Once per house B/L. This step only reads, so it's safe to run again. It reads back the request's reference and status. Once CMA CGM has issued the delivery order, it also downloads the eDO to `data/files/<job>/portal/<HBL>-eDO.pdf`. The guide stops at SAVE, so where the real ODeX offers the eDO isn't known; the local one puts it on the request's row.
 
 ### Fields filled as the process goes
 
@@ -172,7 +185,7 @@ The params, the data behind them and the workflows stay the same.
 
 What's still missing for the real SOPs:
 
-1. **The real ODeX pages' HTML.** The guide's screenshots show what the invoice steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had. The guide also stops at the invoice: the deposit and the DO request still need screenshots or a walk-through.
+1. **The real ODeX pages' HTML.** The guides' screenshots show what the invoice and DO request steps look like, but not ODeX's element ids. The SOPs for the real ODeX need each page's HTML (saved as "Webpage, Complete", or from the browser's DevTools), as the RTGS SOP had. The deposit still needs screenshots or a walk-through.
 2. **ODeX login.** The real login page is known: User ID, password and a picture captcha (no OTP), then the company, then Confirm Sign In. The local ODeX copies it. Still needed:
    - A test login.
    - Someone to type the captcha: a step where the run waits for a person. ODeX doesn't ask a browser that has signed in with that User ID in the last 30 days, but the agent starts a fresh browser each run, so it is always asked.
@@ -185,5 +198,9 @@ What's still missing for the real SOPs:
 6. **The UTR on the deposit.** The sample deposit slip shows UTR …4389, the invoice payment's UTR, not …8497 from the deposit's own receipt. Which one does ODeX expect?
 7. **The mailbox.** Which of the Email(s) on the RTGS page the Graph subscription watches, so the receipts reach the app. It should be kept apart from python-brain's `datahub@hexalog.in` pipeline.
 8. **Sample emails.** The liner's invoice-verified email, Finance's UTR reply, CMA CGM's receipt emails and the eDO email, to write their extractors.
-9. **The DO request's documents.** Does ODeX take the combined folder PDF in one Add Row, or does it want one row per document type?
+9. **The DO request.** The guide "DO final steps corrected" settles most of it: the combined folder goes in one Add Row, as "All document in a single pdf". Still open:
+   - Its text says to enter SHZ8483546, the MBL, as the BL No., but its screenshots show WOLSZSE26085157B, the HBL. The SOP enters the HBL, as the screenshots and ODeX's note do, once per house bill.
+   - It says to enter the runner boy and his mobile no. "as shown in the screenshot", but the screenshot leaves them empty. They're fixed details, empty for now.
+   - Are the factory address and PIN always the guide's (Hexalog's), or the consignee's factory for each job?
+   - The drop-downs' other options (only General, Factory and Yes are seen), what ODeX shows after SAVE, and where it offers the eDO.
 10. **The refund.** Is the refund request (Counter Process → Request Refund) in scope? It isn't built.

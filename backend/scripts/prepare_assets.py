@@ -3,7 +3,7 @@
     python scripts/prepare_assets.py [path/to/Docs]
 
 Stamps and bonds carry real signatures, so they go to assets/private/, which
-git ignores. So do the ODeX screenshots from the team's step-by-step guide: they
+git ignores. So do the ODeX screenshots from the team's step-by-step guides: they
 show a real ODeX account. Letterhead artwork goes to assets/letterheads/.
 """
 from __future__ import annotations
@@ -36,17 +36,24 @@ LETTERHEADS = [
 ]
 LETTERHEAD_WIDTH = 1400
 
-# The screens of the team's ODeX guide that the local ODeX shows, by the image's
-# place in the Word file. local_portals/odex_screens.py places its buttons and
+# The screens of the team's ODeX guides that the local ODeX shows, by the image's
+# place in each Word file. local_portals/odex_screens.py places its buttons and
 # fields over them, so a new guide needs its coordinates measured again.
-ODEX_GUIDE = "Docs/Delivery Order Request-First step 1.docx"
-ODEX_SCREENS = {
-    "word/media/image1.png": "service.png",  # step 1: the services, each with its location
-    "word/media/image6.png": "dashboard.png",  # step 6: ePayment's main page and EDO DETAILS
-    "word/media/image4.png": "liner-requests.png",  # step 4: Requests → Liner Requests
-    "word/media/image5.png": "new-invoice.png",  # step 5: Request New Invoice
-    "word/media/image7.png": "bl-status.png",  # step 8: the BL's status after EDO DETAILS
-    "word/media/image8.png": "view-invoice.png",  # step 9: the request, with its invoice
+ODEX_GUIDES = {
+    # The invoice: request it, then collect it.
+    "Docs/Delivery Order Request-First step 1.docx": {
+        "word/media/image1.png": "service.png",  # step 1: the services, each with its location
+        "word/media/image6.png": "dashboard.png",  # step 6: ePayment's main page and EDO DETAILS
+        "word/media/image4.png": "liner-requests.png",  # step 4: Requests → Liner Requests
+        "word/media/image5.png": "new-invoice.png",  # step 5: Request New Invoice
+        "word/media/image7.png": "bl-status.png",  # step 8: the BL's status after EDO DETAILS
+        "word/media/image8.png": "view-invoice.png",  # step 9: the request, with its invoice
+    },
+    # The DO request, once the DO folder is ready.
+    "Docs/DO final steps corrected.docx": {
+        "word/media/image3.png": "do-requests.png",  # step 3: Documents → DO Request, with its advertisement
+        "word/media/image5.png": "do-request.png",  # steps 4-5: the DO request, its folder added through Add Row
+    },
 }
 
 # Paper in a phone photo of a stamp is never pure white. Anything this close to
@@ -100,16 +107,17 @@ def main() -> None:
         flat.save(target, quality=88, optimize=True)
         print(f"letterhead assets/letterheads/{name}")
 
-    guide = docs / ODEX_GUIDE
-    if not guide.is_file():
-        print(f"odex       skipped: no {ODEX_GUIDE} (the local ODeX then shows plain pages)")
-        return
-    with zipfile.ZipFile(guide) as archive:
-        for member, name in ODEX_SCREENS.items():
-            target = PRIVATE / "odex" / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(archive.read(member))
-            print(f"odex       assets/private/odex/{name}")
+    for guide_name, screens in ODEX_GUIDES.items():
+        guide = docs / guide_name
+        if not guide.is_file():
+            print(f"odex       skipped: no {guide_name} (its pages then show grey stand-ins)")
+            continue
+        with zipfile.ZipFile(guide) as archive:
+            for member, name in screens.items():
+                target = PRIVATE / "odex" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(member))
+                print(f"odex       assets/private/odex/{name}")
 
 
 if __name__ == "__main__":

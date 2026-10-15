@@ -56,4 +56,4 @@ def test_the_agent_raises_the_do_request_on_the_portal(tmp_path, private_dir, po
         assert run["sop_name"] == "Mock ODeX - New DO Request"
         assert run["extractions"][0]["data"]["odex_request_ref"] == "DOREQ-047251"
         # The portal saw the folder PDF itself, not just a file name.
-        assert "HXL-IMP-" in run["extractions"][0]["data"]["odex_confirmation"]
+        assert f"ALL {HBL[-4:]}.pdf" in run["extractions"][0]["data"]["odex_confirmation"]

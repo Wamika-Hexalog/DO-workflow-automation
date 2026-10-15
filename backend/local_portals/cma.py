@@ -137,8 +137,9 @@ def issue_edo(store: Store, item_id: str) -> str:
         today = date.today()
         pdf = documents.edo_pdf(
             edo_no=edo_no, on=today.isoformat(), valid_till=(today + timedelta(days=EDO_VALID_DAYS)).isoformat(),
-            liner=request["liner"], account=ACCOUNT_NAME, bl_no=request["bl_no"], containers=request["containers"],
-            do_type=request["do_type"], delivery_type=request["delivery_type"], request_ref=request["ref"],
+            liner=request["liner"], account=ACCOUNT_NAME, bl_no=request["bl_no"], containers=request.get("containers") or [],
+            do_type=request.get("do_type", "E-DO"), delivery_type=request.get("destuff_type") or request.get("delivery_type", ""),
+            request_ref=request["ref"],
         )
         file_id = store.add_file(data, pdf, f"eDO {edo_no} {request['bl_no']}.pdf")
         request.update(status="DO Issued", edo_no=edo_no, edo_file=file_id, answered_at=now())

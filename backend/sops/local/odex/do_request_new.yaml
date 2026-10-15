@@ -1,27 +1,37 @@
-# Raise the DO request on ODeX: e-Payment → DO Request → New DO Request, with
-# the house B/L number (not the MBL) and the DO folder PDF attached through Add Row.
-# Runs once per house bill, each time with the same folder PDF of the MBL.
+# Raise the DO request on ODeX, as the team's guide "DO final steps corrected" does it,
+# once the DO folder is ready: open ePayment for the MBL's place of delivery, then
+# Documents → DO Request, close the advertisement, NEW DO REQUEST, fill in the BL
+# information and add the DO folder through Add Row as "All document in a single
+# pdf", then SAVE. Runs once per house bill, each time with the same folder PDF of
+# the MBL: CMA CGM's note on the page says "If IGM has been filed for HBL, please
+# submit a DO Request on ODeX for the respective HBL".
 #
-# Written for the local ODeX (make portals). With DO_ODEX_SOP pointing here, the
-# app's do-request-submit workflow runs it when ops approve the DO request
-# (make demo-local). The real page's selectors aren't known yet;
-# sops/local/README.md says what's needed to point it at the real one.
+# Written for the local ODeX (make portals), whose pages are the guide's screenshots
+# with live buttons and fields over them. With DO_ODEX_SOP pointing here, the app's
+# do-request-submit workflow runs it when ops approve the DO request (make
+# demo-local). The real ODeX's selectors aren't known: that needs its pages' HTML
+# (sops/local/README.md).
 #
 # Params, built by app/portal_params.py (step odex_do_request_new):
-#   odex_url         where ODeX is: DO_ODEX_URL, the local one by default
-#   liner            fixed details: Liner on ODeX
-#   hbl_no           the house B/L this request is for
-#   mbl_no           job: Master B/L no.
-#   job_no           the job number, entered as the remark
-#   do_type          job: D/O or E-DO
-#   delivery_type    job: Delivery type
-#   containers       job: Container nos., comma separated
-#   folder_pdf_path  the built DO folder, which must be up to date
+#   odex_url           where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location      job: ODeX location (the MBL's place of delivery; ICD Tughlakabad is NCR)
+#   liner              fixed details: Liner on ODeX, which ODeX fills in from the BL
+#   hbl_no             the house B/L this request is for
+#   destuff_type       job: Delivery type, as ODeX's DE Stuffing Type (Factory)
+#   seaway_bl          job: Endorsed: Yes for a waybill or telex release
+#   runner_boy         fixed details: Runner boy (empty in the guide; skipped when empty)
+#   runner_mobile      fixed details: Runner boy's mobile no. (likewise)
+#   remarks            fixed details: Remarks on the DO request
+#   hss_customer_name  fixed details: HSS customer name
+#   factory_address    fixed details: Factory address
+#   factory_pin        fixed details: Factory location PIN
+#   folder_pdf_path    the built DO folder, as ALL <last 4 of the HBL>.pdf; it must be up to date
+# Cargo Type is General every time (guide, step 4).
 #
 # Reads back: odex_request_ref (the app logs it on the job), odex_confirmation
 metadata:
   name: "Local ODeX - New DO Request"
-  version: "0.1"
+  version: "0.2"
 
 credentials:
   username_env: "LOCAL_ODEX_USERNAME"
@@ -113,108 +123,207 @@ steps:
     condition: params.choose_company
     selector: "#confirmSignIn"
 
+  # Guide, step 1: the services page; ePayment for the MBL's place of delivery.
   - action: wait_for_selector
     description: Wait for the services page
     method: playwright
     selector: "#epayment-location"
 
-  # The team's ODeX guide doesn't reach the DO request yet, so its page is opened directly.
-  - action: goto
-    description: Open DO Request
+  - action: execute_script
+    description: Choose ePayment's location
     method: playwright
-    url: "{params.odex_url}/e-payment/do-request"
-    wait_for: domcontentloaded
-
-  - action: wait_for_selector
-    description: Wait for the DO Request page
-    method: playwright
-    selector: "#new-do-request"
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#epayment-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
   - action: click
-    description: New DO Request
+    description: Open ePayment
+    method: playwright
+    selector: "#epayment-go"
+
+  # Guide, step 2: Documents → DO Request.
+  - action: wait_for_selector
+    description: Wait for ePayment's main page
+    method: playwright
+    selector: "#edo-search"
+
+  - action: click
+    description: Open the Documents menu
+    method: playwright
+    selector: "#menu-documents"
+
+  - action: click
+    description: Go to DO Request
+    method: playwright
+    selector: "#menu-do-request"
+
+  # Guide, step 3: close the advertisement, then NEW DO REQUEST.
+  - action: wait_for_selector
+    description: Wait for the list of DO requests
     method: playwright
     selector: "#new-do-request"
 
-  - action: wait_for_selector
-    description: Wait for the DO request form
+  - action: execute_script
+    description: Close the advertisement, if there is one
     method: playwright
-    selector: "#do-request-form"
+    script: |
+      () => {
+        const close = document.querySelector('#ad-close');
+        if (close && close.checkVisibility()) close.click();
+      }
+
+  - action: click
+    description: NEW DO REQUEST
+    method: playwright
+    selector: "#new-do-request"
+
+  # Guide, step 4: the BL information.
+  - action: wait_for_selector
+    description: Wait for the DO request
+    method: playwright
+    selector: "#bl-no"
+
+  - action: fill
+    description: Enter the BL No. (the house B/L)
+    method: playwright
+    selector: "#bl-no"
+    value_from: params.hbl_no
+
+  # Leaving the field makes ODeX fill in the Liner/FF-Issuer from the BL.
+  - action: press
+    description: Leave the BL No.
+    method: playwright
+    selector: "#bl-no"
+    key: Tab
+
+  - action: wait_for_selector
+    description: Wait for ODeX to fill in the Liner/FF-Issuer
+    method: playwright
+    selector: "#liner-issuer:not([value=''])"
 
   - action: execute_script
-    description: Choose the liner, the DO type and the delivery type
+    description: Check the liner, then choose the location, cargo type, DE stuffing type and Seaway BL/Telex BL
     method: playwright
     script_args:
       liner: params.liner
-      do_type: params.do_type
-      delivery_type: params.delivery_type
+      location: params.odex_location
+      cargo_type: "General"
+      destuff_type: params.destuff_type
+      seaway_bl: params.seaway_bl
     script: |
-      ({ liner, do_type, delivery_type }) => {
+      ({ liner, location, cargo_type, destuff_type, seaway_bl }) => {
+        // ODeX's liner names are long ("CMA CGM AGENCIES INDIA PRIVATE LIMITED"): one
+        // that starts with the name given is the one.
+        const issuer = document.querySelector('#liner-issuer').value.trim();
+        if (!issuer.toUpperCase().startsWith(String(liner).trim().toUpperCase())) {
+          throw new Error(`ODeX says this BL is ${issuer}'s, not ${liner}'s`);
+        }
         const choose = (selector, wanted) => {
           const select = document.querySelector(selector);
-          const option = [...select.options].find((o) => o.value === wanted || o.text.trim() === wanted);
+          const want = String(wanted).trim().toUpperCase();
+          const option = [...select.options].find((o) => o.value && (o.value.toUpperCase() === want || o.text.trim().toUpperCase() === want));
           if (!option) throw new Error(`ODeX has no "${wanted}" in ${selector}`);
           select.value = option.value;
           select.dispatchEvent(new Event('change', { bubbles: true }));
         };
-        choose('#liner', liner);
-        choose('#doType', do_type);
-        choose('#deliveryType', delivery_type);
+        choose('#location', location);
+        choose('#cargo-type', cargo_type);
+        choose('#destuff-type', destuff_type);
+        choose('#seaway-bl', seaway_bl);
+      }
+
+  - action: execute_script
+    description: Tick Payment not via ODeX (Finance pays CMA CGM by RTGS)
+    method: playwright
+    script: |
+      () => {
+        const box = document.querySelector('#payment-not-via-odex');
+        if (!box.checked) box.click();
+        if (!box.checked) throw new Error("Payment not via ODeX didn't tick");
       }
 
   - action: fill
-    description: Enter the house B/L number (ODeX wants the HBL, not the MBL)
+    description: Enter the runner boy
     method: playwright
-    selector: "#blNo"
-    value_from: params.hbl_no
+    condition: params.runner_boy
+    selector: "#runner-boy"
+    value_from: params.runner_boy
 
   - action: fill
-    description: Enter the container numbers
+    description: Enter the runner boy's mobile no.
     method: playwright
-    selector: "#containers"
-    value_from: params.containers
+    condition: params.runner_mobile
+    selector: "#mobile-no"
+    value_from: params.runner_mobile
 
   - action: fill
-    description: Enter the job number as the remark
+    description: Enter the remarks
     method: playwright
     selector: "#remarks"
-    value_from: params.job_no
+    value_from: params.remarks
 
-  - action: click
-    description: Add Row, for the DO folder
+  - action: fill
+    description: Enter the HSS customer name
     method: playwright
-    selector: "#addRow"
+    selector: "#hss-customer-name"
+    value_from: params.hss_customer_name
+
+  - action: fill
+    description: Enter the factory address
+    method: playwright
+    selector: "#factory-address"
+    value_from: params.factory_address
+
+  - action: fill
+    description: Enter the factory location PIN
+    method: playwright
+    selector: "#factory-pin"
+    value_from: params.factory_pin
+
+  # Guide, step 5: Add Row, the DO folder in it, and SAVE.
+  - action: click
+    description: Add Row
+    method: playwright
+    selector: "#add-row"
 
   - action: wait_for_selector
     description: Wait for the new row
     method: playwright
-    selector: "#docRows tr[data-row='1']"
+    selector: "#document-rows tr[data-row='1']"
 
   - action: execute_script
-    description: Mark the row as the DO folder
+    description: Name the row's document
     method: playwright
     script_args:
-      doc_type: "DO folder (combined PDF)"
+      doc_name: "All document in a single pdf"
     script: |
-      ({ doc_type }) => {
-        const select = document.querySelector("#docRows tr[data-row='1'] select.doc-type");
-        const option = [...select.options].find((o) => o.value === doc_type || o.text.trim() === doc_type);
-        if (!option) throw new Error(`ODeX has no document type "${doc_type}"`);
+      ({ doc_name }) => {
+        const select = document.querySelector("#document-rows tr[data-row='1'] select.doc-name");
+        const option = [...select.options].find((o) => o.value === doc_name || o.text.trim() === doc_name);
+        if (!option) throw new Error(`ODeX has no document "${doc_name}"`);
         select.value = option.value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
   - action: upload_file
-    description: Attach the DO folder PDF
+    description: Attach the DO folder
     method: playwright
-    selector: "#docRows tr[data-row='1'] input.doc-file"
+    selector: "#document-rows tr[data-row='1'] input.doc-file"
     file_path_from: params.folder_pdf_path
 
   # The submit and the check are separate steps: the agent retries a failed step,
   # and only the check is safe to repeat.
   - action: click
-    description: Submit the DO request
+    description: SAVE
     method: playwright
-    selector: "#submit"
+    selector: "#save"
 
   - action: wait_for_selector
     description: Wait for ODeX's answer

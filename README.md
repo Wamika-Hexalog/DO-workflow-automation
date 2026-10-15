@@ -14,7 +14,7 @@ You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12) and Node 18+
 
 ```bash
 make setup         # Python 3.12 and packages with uv; npm install, including the Inngest dev server
-make assets        # transparent stamps, bonds, letterheads and the ODeX guide's screenshots, from Docs/
+make assets        # transparent stamps, bonds, letterheads and the ODeX guides' screenshots, from Docs/
 make odex-login-screen  # the real ODeX login page's screenshot, for the local one (nothing is typed or sent)
 make dev           # API on :8000, UI with hot reload on :5173, Inngest dev server on :8288
 make demo          # builds the UI; serves it with the API on :8000, plus the Inngest dev server
@@ -121,7 +121,7 @@ Mail without a code, or with an MBL no job has, is ignored. To receive real mail
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
 
-- **ODeX** (`/odex`). The login is the real ODeX India login page, which works like it: the same fields and ids, its captcha drawn and checked the same way, the company to choose after the password, and the "already logged in another session" question. The invoice steps are the team's ODeX guide: its screenshots, with live buttons and fields over only what the process uses. That covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. New Deposit (with its slip once approved) and New DO Request (with its eDO once issued) are plain pages until the guide covers them.
+- **ODeX** (`/odex`). The login is the real ODeX India login page, which works like it: the same fields and ids, its captcha drawn and checked the same way, the company to choose after the password, and the "already logged in another session" question. The invoice and DO request steps are the team's two ODeX guides: their screenshots, with live buttons and fields over only what the process uses. The invoice guide covers the services page, ePayment, Liner Requests, Request New Invoice, BL Status and View Invoice Request, with the invoice to download. The DO request guide ("DO final steps corrected") covers Documents → DO Request, its advertisement, and the DO request itself, with the folder added through Add Row; the list then offers the eDO once issued. New Deposit (with its slip once approved) is a plain page until a guide covers it.
 - **CMA CGM RTGS** (`/cma-rtgs`): the RTGS Confirmation page, copied from the real one's HTML (same ids, checks and messages, and the same page after Submit), invoice grid included. Each payment is confirmed on its own: the shipment payment, then the security deposit.
 - **A control panel** (`/control`) that plays CMA CGM: it verifies invoices, emails receipts, approves deposits and issues eDOs, by a click or by autoplay, and shows the emails it would send. Nothing is sent.
 

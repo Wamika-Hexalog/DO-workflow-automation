@@ -167,10 +167,12 @@ def test_the_browser_agent_raises_one_request_per_house_bill(automated, monkeypa
     engine.run()
 
     assert [c["hbl_no"] for c in calls] == [HBL, HBL_2]
-    assert {c["mbl_no"] for c in calls} == {MBL}
-    assert calls[0]["folder_pdf_path"] == calls[1]["folder_pdf_path"]  # one PDF per MBL
+    # One folder per MBL: each house bill's request uploads it, named as the team names it.
+    first, second = (Path(c["folder_pdf_path"]) for c in calls)
+    assert (first.name, second.name) == (f"ALL {HBL[-4:]}.pdf", f"ALL {HBL_2[-4:]}.pdf")
+    assert first.read_bytes() == second.read_bytes()
     # The rest of what the SOP fills in comes from the job and the fixed details.
-    assert (calls[0]["liner"], calls[0]["do_type"], calls[0]["odex_url"]) == ("CMA CGM", "E-DO", "http://127.0.0.1:8100/odex")
+    assert (calls[0]["liner"], calls[0]["destuff_type"], calls[0]["odex_url"]) == ("CMA CGM", "Factory", "http://127.0.0.1:8100/odex")
     s = api.get(f"/api/shipments/{s['id']}").json()
     assert s["status"] == "do_requested"
     log = events_of(api, s)

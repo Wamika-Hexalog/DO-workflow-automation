@@ -40,6 +40,17 @@ profile_fields:
   - { key: do_mailbox, label: Emails for CMA CGM's invoice and receipts, default: "kishan@hexalog.in,customs-ops@Hexalog.in" }
   # Kept out of this file: entered once in the fixed details. Only the RTGS page needs it.
   - { key: payer_account_no, label: Bank account no. that pays CMA CGM, code: true, optional: true }
+  # The DO request on ODeX, as the team's guide "DO final steps corrected" fills it.
+  # Its screenshots leave the runner boy and his mobile no. empty.
+  - { key: odex_hss_customer, label: HSS customer name on ODeX's DO request, default: HEXALOG GLOBAL SUPPLY CHAINS PVT LTD }
+  - key: factory_address
+    label: Factory address on ODeX's DO request
+    type: textarea
+    default: "PLOT NOS. 92-93, AIHP MILLENIUM UDYOG VIHAR, PHASE-4"
+  - { key: factory_pin, label: Factory location PIN on ODeX's DO request, code: true, default: "122015" }
+  - { key: odex_do_remarks, label: Remarks on ODeX's DO request, default: Forwarder Letter attached to authorise CHA }
+  - { key: odex_runner_boy, label: Runner boy on ODeX's DO request, optional: true }
+  - { key: odex_runner_mobile, label: Runner boy's mobile no. on ODeX's DO request, code: true, optional: true }
 
 # Entered once per shipment (one MBL) and printed by the letters that use them.
 shipment_groups:

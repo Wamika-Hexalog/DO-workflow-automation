@@ -181,7 +181,8 @@ def test_the_do_process_runs_on_the_local_portals(do_app, portals):
     assert s["status"] == "do_requested", task(s, "odex_do_request")["note"]
     with portals.store.read() as data:
         request = dict(data["do_requests"][0])
-    assert request["bl_no"] == HBL and request["documents"][0]["name"].startswith("HXL-IMP-")
+    assert (request["bl_no"], request["destuff_type"], request["seaway_bl"]) == (HBL, "Factory", "Yes")
+    assert [(d["doc_type"], d["name"]) for d in request["documents"]] == [("All document in a single pdf", f"ALL {HBL[-4:]}.pdf")]
     log = [e["detail"] for e in api.get(f"/api/shipments/{s['id']}/events").json()]
     assert f"DO request raised on ODeX for HBL {HBL}, reference {request['ref']}." in log
 

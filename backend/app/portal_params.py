@@ -52,8 +52,12 @@ DO_REQUEST_STATUS = "odex_do_request_status"
 # Hexalog signs the NOC for refunding the deposit to the CHA.
 NOC_STAMP = "hexalog"
 
-# ODeX's words for the job's delivery types.
+# ODeX's words for the job's delivery types: on the invoice request, and as the DO
+# request's DE Stuffing Type (LCL is de-stuffed at the CFS).
 ODEX_DELIVERY = {"Factory De-stuff": "Factory Destuff", "CFS De-stuff": "CFS Destuff"}
+ODEX_DESTUFF = {"Factory De-stuff": "Factory", "CFS De-stuff": "CFS", "LCL": "CFS", "DPD": "DPD"}
+# The endorsements that make the MBL a seaway or telex BL, for the DO request.
+SEAWAY_ENDORSEMENTS = ("Waybill", "TELEX Release")
 
 # The fields the NOC for the refund prints.
 NOC_FIELDS = (
@@ -102,6 +106,12 @@ class _Job:
             return self._lack(f"{field.label} (fixed details)" if field.scope == "profile" else field.label)
         return _as_text(field, value)
 
+    def optional(self, key: str) -> str:
+        """A field that may be left empty."""
+        field = self.rt.folder.fields[key]
+        value = self.rt.folder.value(key, self.profile.data, self.shipment.data)
+        return _as_text(field, value) if is_filled(field, value) else ""
+
     def money(self, key: str) -> str:
         """An amount as CMA CGM's RTGS page shows it: 54720.68, 40000.00."""
         value = self.field(key)
@@ -124,7 +134,8 @@ class _Job:
         shutil.copyfile(assemble.shipment_dir(self.rt.settings, self.shipment.id) / attached.pdf_file, copy)
         return str(copy)
 
-    def folder_pdf(self) -> str:
+    def folder_pdf(self, name: str) -> str:
+        """A copy of the built DO folder, named as the portal should show it."""
         if not self.shipment.folder_file:
             return self._lack("a built DO folder")
         if service.stale(self.shipment, self.profile):
@@ -132,7 +143,10 @@ class _Job:
         path = service.folder_pdf_path(self.rt, self.shipment)
         if path is None or not path.is_file():
             raise service.NotReady("The built folder PDF is missing. Build the folder again.")
-        return str(path)
+        copy = Path(self.portal_file(name))
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, copy)
+        return str(copy)
 
     def portal_file(self, name: str) -> str:
         """Where a file from a portal is kept: with the job's other files."""
@@ -234,22 +248,39 @@ def _deposit_status(job: _Job, hbl: str | None) -> dict[str, str]:
 
 
 def _do_request(job: _Job, hbl: str | None) -> dict[str, str]:
+    """The team's guide "DO final steps corrected", steps 1-5. Cargo Type is General
+    every time (the SOP's own)."""
+    hbl_no = hbl or ""
+    delivery = job.field("delivery_type")
+    endorsed = job.field("endorsed")
     return {
+        # ePayment is opened for the MBL's place of delivery, as for the invoice.
+        "odex_location": job.field("odex_location"),
         "liner": job.field("odex_liner"),
-        # ODeX wants the house bill here, not the master bill.
-        "hbl_no": hbl or "",
-        "mbl_no": job.field("mbl_no"),
-        "job_no": job.shipment.job_no,
-        "do_type": job.field("do_type"),
-        "delivery_type": job.field("delivery_type"),
-        "containers": job.field("containers"),
-        # One folder per MBL, uploaded with every house bill's request.
-        "folder_pdf_path": job.folder_pdf(),
+        # ODeX wants the house bill here, not the master bill: "If IGM has been filed
+        # for HBL, please submit a DO Request on ODeX for the respective HBL."
+        "hbl_no": hbl_no,
+        "destuff_type": ODEX_DESTUFF.get(delivery, delivery),
+        "seaway_bl": ("Yes" if endorsed in SEAWAY_ENDORSEMENTS else "No") if endorsed else "",
+        "runner_boy": job.optional("odex_runner_boy"),
+        "runner_mobile": job.optional("odex_runner_mobile"),
+        "remarks": job.field("odex_do_remarks"),
+        "hss_customer_name": job.field("odex_hss_customer"),
+        "factory_address": job.field("factory_address"),
+        "factory_pin": job.field("factory_pin"),
+        # One folder per MBL, uploaded with every house bill's request as "All
+        # document in a single pdf", named as the team names it: ALL 157B.pdf for
+        # HBL WOLSZSE26085157B.
+        "folder_pdf_path": job.folder_pdf(f"ALL {hbl_no[-4:]}.pdf"),
     }
 
 
 def _do_request_status(job: _Job, hbl: str | None) -> dict[str, str]:
-    return {"hbl_no": hbl or "", "edo_save_path": job.portal_file(f"{hbl}-eDO.pdf")}
+    return {
+        "odex_location": job.field("odex_location"),
+        "hbl_no": hbl or "",
+        "edo_save_path": job.portal_file(f"{hbl}-eDO.pdf"),
+    }
 
 
 @dataclass(frozen=True)

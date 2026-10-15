@@ -1,27 +1,36 @@
-"""The local ODeX's pages that the team's step-by-step guide shows ("Delivery Order
-Request-First step 1.docx"). Each is the guide's screenshot, with live elements over
-only the buttons and fields the process uses; the rest is just the picture.
+"""The local ODeX's pages that the team's step-by-step guides show: the invoice
+("Delivery Order Request-First step 1.docx") and the DO request ("DO final steps
+corrected.docx"). Each is the guide's screenshot, with live elements over only the
+buttons and fields the process uses; the rest is just the picture.
 
     guide step  page                    live over the picture
     (login)     login                   User ID, password, captcha and its refresh, Sign in and
                                         Reset; then the company and Confirm Sign In
     1-2         services (home)         ePayment's location and its arrow; Counter Process's arrow
-    3, 6        ePayment's main page    Requests → Liner Requests; the EDO DETAILS search
+    3, 6        ePayment's main page    Requests → Liner Requests; Documents → DO Request; the EDO
+                                        DETAILS search
     4           Liner Requests          Request New Invoice; our requests, over the picture's rows
     5           New Invoice Request     liner, BL no., BL location, type, type of delivery, job no.,
                                         the first attachment and its remarks; Submit and Back
     8           BL Status               the BL, its request and invoice, over the picture's
     9-10        View Invoice Request    the invoice's number, date, amount and status, and its PDF
+    DO 3        DO Request              the advertisement and its close; NEW DO REQUEST; the BL
+                                        search; our requests, over the picture's rows
+    DO 4-5      DO Request (new)        the BL information, Add Row with its document and file,
+                                        SAVE and BACK
 
 The screenshots show a real ODeX account, so they stay out of git: `make assets` takes
-them from the guide into assets/private/odex/. The guide has no login page, so its
+them from the guides into assets/private/odex/. The guides have no login page, so its
 screenshot is the real login page as anyone sees it (make odex-login-screen). Without
 them each page shows a grey stand-in of the same shape, and every live element still
-works, so the SOPs and the tests run anywhere. Live elements sit at the screenshot's own pixel coordinates (see
-Screen.at): a new screenshot needs its coordinates measured again.
+works, so the SOPs and the tests run anywhere. Live elements sit at the screenshot's
+own pixel coordinates (see Screen.at): a new screenshot needs its coordinates measured
+again.
 """
 from __future__ import annotations
 
+import json
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -30,7 +39,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from . import forms, pages
 from .odex import COOKIE, current_user, signed_in, store_of, to_login
@@ -44,6 +53,7 @@ HOME = "/odex/home"
 EPAYMENT = "/odex/epayment"
 LINER_REQUESTS = "/odex/epayment/liner-requests"
 BL_STATUS = "/odex/epayment/bl-status"
+DO_REQUESTS = "/odex/epayment/do-request"
 LOCATION_COOKIE = "odex_location"
 
 # The locations ODeX's services offer, as the guide's step 2 shows them. ICD
@@ -59,6 +69,19 @@ LINER_NAMES = (
 BL_TYPES = ("Import", "Export")
 DELIVERY_TYPES = ("Factory Destuff", "CFS Destuff", "DPD", "LCL")
 ATTACHMENT_TYPES = ("Seaway BL", "Original BL", "Telex Release", "Invoice", "Other")
+# The DO request's drop-downs. The guide shows only its own picks (General, Factory,
+# Yes); the other options are a guess.
+CARGO_TYPES = ("General", "Hazardous", "Reefer", "ODC")
+DESTUFF_TYPES = ("Factory", "CFS", "DPD")
+YES_NO = ("Yes", "No")
+# The DO request's document list, as the guide shows it. Add Row offers the same
+# names and one more: the team uploads the whole DO folder as a single PDF.
+DO_DOCUMENTS = (
+    "Copy of Cheque and Bond receipt", "Check List", "Bank Certification for Signature Verification", "AF Form",
+    "eDO LOI", "Factory Bond Letter Of Indemnity",
+)
+SINGLE_PDF = "All document in a single pdf"
+ROW_DOCUMENTS = (SINGLE_PDF, *DO_DOCUMENTS)
 
 
 @dataclass(frozen=True)
@@ -82,7 +105,12 @@ REQUESTS_LIST = Screen("liner-requests.png", 1430, 623, 13.5)
 NEW_INVOICE = Screen("new-invoice.png", 1918, 850, 17.5)
 STATUS = Screen("bl-status.png", 1430, 688, 13)
 VIEW_INVOICE = Screen("view-invoice.png", 1897, 955, 17.5)
-SCREENS = {s.file: s for s in (LOGIN, SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE)}
+DO_REQUEST_LIST = Screen("do-requests.png", 1430, 605, 11.5)
+DO_REQUEST_FORM = Screen("do-request.png", 1918, 933, 12)
+SCREENS = {
+    s.file: s
+    for s in (LOGIN, SERVICES, DASHBOARD, REQUESTS_LIST, NEW_INVOICE, STATUS, VIEW_INVOICE, DO_REQUEST_LIST, DO_REQUEST_FORM)
+}
 
 # The real login page's parts, by their ids there, and where they sit on its
 # screenshot. The live ones take the same ids and places, so the SOPs' login steps
@@ -115,7 +143,8 @@ OTHER_SESSION = "You are already logged in another session. Do you wish to close
 
 _STYLE = """
 main { max-width:none; padding:0; }
-.shot { position:relative; container-type:inline-size; width:100%; margin:0 auto; background:#fff; }
+.shot { position:relative; container-type:inline-size; width:100%; margin:0 auto; background:#fff;
+        --px:calc(100cqw / var(--w)); }
 .shot-picture { display:block; width:100%; height:auto; }
 .shot-missing { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
                 text-align:center; color:#59636e; font-size:14px;
@@ -158,9 +187,13 @@ def screens_dir(request: Request) -> Path:
     return request.app.state.screens_dir
 
 
+def _has_picture(request: Request, screen: Screen) -> bool:
+    return (screens_dir(request) / screen.file).is_file()
+
+
 def _shot(request: Request, screen: Screen, live: str, **attrs: str) -> str:
     """The screenshot, or a stand-in of its shape, with the live elements over it."""
-    if (screens_dir(request) / screen.file).is_file():
+    if _has_picture(request, screen):
         picture = f'<img class="shot-picture" src="/odex/screens/{screen.file}" alt="" draggable="false">'
     else:
         picture = (
@@ -212,7 +245,6 @@ def _latest_request(data: dict[str, Any], bl_no: str) -> dict[str, Any] | None:
 # The real login page's look, from its stylesheet. Its box is 90% opaque, which is
 # where the greys come from. --px is one pixel of the screenshot.
 _LOGIN_STYLE = """
-.shot { --px:calc(100cqw / var(--w)); }
 .underlined { background-color:#fff; background-repeat:no-repeat;
   background-image:linear-gradient(#b1b1b1,#b1b1b1),linear-gradient(#b1b1b1,#b1b1b1),linear-gradient(#b1b1b1,#b1b1b1);
   background-size:100% max(1px,var(--px)),max(1px,var(--px)) calc(3 * var(--px)),max(1px,var(--px)) calc(3 * var(--px));
@@ -551,11 +583,14 @@ def _edo_search(screen: Screen, field: tuple[int, int, int, int], button: tuple[
 
 
 _MENU_SCRIPT = """
-const requestsMenu = document.getElementById('requests-menu');
-document.getElementById('menu-requests').addEventListener('click', (event) => {
+const menuButtons = document.querySelectorAll('[data-menu]');
+menuButtons.forEach((button) => button.addEventListener('click', (event) => {
   event.preventDefault();
-  requestsMenu.hidden = !requestsMenu.hidden;
-});
+  const menu = document.getElementById(button.dataset.menu);
+  const opening = menu.hidden;
+  menuButtons.forEach((other) => { document.getElementById(other.dataset.menu).hidden = true; });
+  menu.hidden = !opening;
+}));
 """
 
 
@@ -566,10 +601,14 @@ def epayment(request: Request, location: str = "") -> Response:
     if location and location not in LOCATIONS:
         return RedirectResponse(HOME, status_code=303)
     s = DASHBOARD
-    live = f"""<button id="menu-requests" class="live hot" title="Requests" style="{s.at(262, 0, 358, 47)}"></button>
+    live = f"""<button id="menu-requests" class="live hot" data-menu="requests-menu" title="Requests" style="{s.at(262, 0, 358, 47)}"></button>
 <div id="requests-menu" class="dropdown live" hidden style="{s.at(204, 48, 441, 225)}">
 <a id="menu-liner-requests" href="{LINER_REQUESTS}">Liner Requests</a>
 <span>CFS Requests</span><span>DPD Requests</span><span>Terminal Request</span></div>
+<button id="menu-documents" class="live hot" data-menu="documents-menu" title="Documents" style="{s.at(557, 0, 671, 47)}"></button>
+<div id="documents-menu" class="dropdown live" hidden style="{s.at(487, 48, 724, 368)}">
+<span>CFS GatePass</span><span>CFS Receipts</span><a id="menu-do-request" href="{DO_REQUESTS}">DO Request</a>
+<span>Invoice Cum Receipt</span><span>Liner DO</span><span>Liner Receipts</span><span>View Final Invoices</span></div>
 {_edo_search(s, (376, 218, 890, 263), (891, 222, 1037, 258))}
 <a id="home" class="live hot" title="Main menu" href="{HOME}" style="{s.at(1343, 7, 1380, 42)}"></a>"""
     response = _page("ePayment", _shot(request, s, live), script=_MENU_SCRIPT)
@@ -792,3 +831,293 @@ def view_invoice_request(item_id: str, request: Request) -> Response:
 {attachment}
 <div id="view-bl-no" class="live cover line" style="{s.at(645, 815, 925, 841)};color:#1a6fb5;font-weight:700">{esc(item["bl_no"])}</div>"""
     return _page("View Invoice Request", _shot(request, s, live, request_ref=item["ref"], request_status=item["status"]))
+
+
+# The DO request: the team's second guide ("DO final steps corrected") ---------------------
+
+# Its look, over the two screenshots.
+_DO_STYLE = """
+.do-list { background:#fff; font-family:Arial,Helvetica,sans-serif; color:#555; font-size:calc(11.5 * var(--px));
+  padding-left:calc(14 * var(--px)); }
+.do-list.as-pictured { background:transparent; }
+.do-list .do-row { display:grid; grid-template-columns:repeat(9, calc(137.8 * var(--px))) 1fr; height:calc(22 * var(--px));
+  align-items:center; border-bottom:1px solid #e6e6e6; }
+.do-list .do-row span { padding:0 calc(4 * var(--px)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.do-list .do-row a { color:#1a6fb5; }
+.do-list .do-count { margin-top:calc(10 * var(--px)); color:#333; }
+.live.ad { z-index:3; background-color:#fff; background-repeat:no-repeat; border:1px solid #c8c8c8; }
+.live.ad.stand-in { display:flex; align-items:center; justify-content:center; color:#59636e; }
+#ad-close { z-index:4; border-radius:50%; }
+.live.field.box { border:max(1px,var(--px)) solid #8a8a8a; resize:none; line-height:1.3;
+  padding:calc(2 * var(--px)) calc(4 * var(--px)); }
+.live.tick { display:flex; align-items:center; justify-content:center; background:#fff; }
+.live.tick input { margin:0; width:calc(13 * var(--px)); height:calc(13 * var(--px)); }
+.documents { background:#fff; overflow-y:auto; overflow-x:hidden; }
+.documents table { width:100%; border-collapse:collapse; table-layout:fixed; font-family:Arial,Helvetica,sans-serif;
+  font-size:calc(12 * var(--px)); color:#333; }
+.documents td { height:calc(28 * var(--px)); padding:0 calc(4 * var(--px)); border-bottom:1px solid #e3e3e3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.documents tr:nth-child(even) td { background:#f9f9f9; }
+.documents input[type=checkbox] { margin:0 0 0 calc(52 * var(--px)); width:calc(13 * var(--px)); height:calc(13 * var(--px)); }
+.documents select { font:inherit; max-width:100%; }
+.documents .doc-file-name { color:#1a6fb5; }
+.documents .clip { display:inline-flex; position:relative; cursor:pointer; width:calc(15 * var(--px)); height:calc(15 * var(--px)); }
+.documents .clip svg { width:100%; height:100%; }
+.documents .clip input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+"""
+
+_CLIP = (
+    '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 4.5 5.4 9.6a1.4 1.4 0 0 0 2 2l5.6-5.6a2.8 2.8 0 0 0'
+    '-4-4L3.4 7.6a4.2 4.2 0 0 0 6 6L14 9" fill="none" stroke="#888" stroke-width="1.4" stroke-linecap="round"/></svg>'
+)
+
+# Steps 2-3: what the list does. The advertisement is the screenshot's own, shown
+# over the rows until it's closed.
+_DO_LIST_SCRIPT = """
+document.getElementById('ad-close')?.addEventListener('click', () => {
+  document.getElementById('advertisement').hidden = true;
+  document.getElementById('ad-close').hidden = true;
+});
+"""
+
+# Steps 4-5: ODeX fills the Liner/FF-Issuer from the BL No. once the field is left;
+# Add Row puts a row on top of the document list, for one document and its file.
+_DO_FORM_SCRIPT = """
+const form = document.getElementById('do-request-form');
+const blNo = document.getElementById('bl-no');
+const liner = document.getElementById('liner-issuer');
+const rows = document.querySelector('#document-rows tbody');
+const documentNames = JSON.parse(form.dataset.documents);
+const clip = document.querySelector('#document-rows .clip').innerHTML;
+let added = 0;
+
+blNo.addEventListener('change', async () => {
+  const bl = blNo.value.trim().toUpperCase();
+  let found = '';
+  if (bl) {
+    const answer = await fetch(`${form.dataset.lookup}?bl_no=${encodeURIComponent(bl)}`);
+    if (answer.ok) found = (await answer.json()).liner || '';
+  }
+  liner.value = found;
+  liner.setAttribute('value', found);
+});
+
+document.getElementById('add-row').addEventListener('click', () => {
+  added += 1;
+  const row = document.createElement('tr');
+  row.className = 'added';
+  row.dataset.row = String(added);
+  row.innerHTML = '<td></td><td><input type="checkbox" class="doc-selected" disabled></td><td class="doc-file-name"></td>'
+    + `<td><label class="clip" title="Attach">${clip}<input type="file" name="doc_file_${added}" class="doc-file" accept="application/pdf,.pdf"></label></td><td></td>`;
+  const name = document.createElement('select');
+  name.name = `doc_name_${added}`;
+  name.className = 'doc-name';
+  name.append(new Option('Select', ''), ...documentNames.map((n) => new Option(n, n)));
+  row.firstChild.append(name);
+  row.querySelector('.doc-file').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    row.querySelector('.doc-file-name').textContent = file ? file.name : '';
+    row.querySelector('.doc-selected').checked = Boolean(file);
+  });
+  rows.prepend(row);
+});
+
+document.getElementById('delete-row').addEventListener('click', () => {
+  rows.querySelector('tr.added')?.remove();
+});
+"""
+
+DO_LIST_ROWS = 8  # the rows shown at once, newest first
+
+
+def _liner_of(bl_no: str) -> str:
+    """Who issued a BL, as ODeX looks it up from the IGM. The local one knows CMA CGM's only."""
+    return LINER_NAMES[0] if forms.BL.match(bl_no) else ""
+
+
+@router.get("/epayment/do-request")
+def do_requests(request: Request, submitted: str = "", bl_no: str = "") -> Response:
+    """Step 3: Documents → DO Request. The advertisement shows when the page is opened
+    from the menu, over everything, until it's closed."""
+    if current_user(request) is None:
+        return to_login(request)
+    s = DO_REQUEST_LIST
+    bl_no = forms.code(bl_no)
+    with store_of(request).read() as data:
+        everything = [dict(r) for r in reversed(data["do_requests"])]
+    items = [r for r in everything if not bl_no or r["bl_no"] == bl_no]
+    shown = items[:DO_LIST_ROWS]
+    rows = []
+    for item in shown:
+        status = esc(item["status"])
+        if item.get("edo_file"):
+            status += f' · <a class="download-edo" href="/odex/files/{esc(item["edo_file"])}">eDO</a>'
+        cells = (
+            esc(item["bl_no"]), "", esc(item.get("liner", "")), "", esc(item.get("destuff_type") or item.get("delivery_type", "")),
+            "No", "Not via ODeX" if item.get("payment_not_via_odex", True) else "",
+            datetime.fromisoformat(item["created_at"]).strftime("%d-%m-%Y %H:%M"), status, "",
+        )
+        rows.append(
+            f'<div class="do-row" data-bl="{esc(item["bl_no"])}" data-ref="{esc(item["ref"])}" data-status="{esc(item["status"])}">'
+            + "".join(f"<span>{cell}</span>" for cell in cells) + "</div>"
+        )
+    counted = f"Showing 1 to {len(shown)} of {len(items)} entries"
+    height = 22 * max(1, len(shown)) + 36
+    # With nothing to list, the picture's own empty table shows through.
+    look = "live do-list" if rows else "live do-list as-pictured"
+    live = [
+        f'<form id="search-form" action="{DO_REQUESTS}" method="get">'
+        f'<input id="search-bl" name="bl_no" class="live field" autocomplete="off" placeholder="SEARCH BL NUMBER" '
+        f'value="{esc(bl_no)}" style="{s.at(1171, 44, 1347, 64)}">'
+        f'<button id="search-bl-go" class="live hot" type="submit" title="Search" style="{s.at(1355, 44, 1382, 64)}"></button></form>',
+        f'<a id="new-do-request" class="live hot" title="NEW DO REQUEST" href="{DO_REQUESTS}/new" style="{s.at(1323, 75, 1419, 94)}"></a>',
+        f'<div class="live cover" style="{s.at(440, 173, 992, 374)}"></div>',  # the picture's own advertisement
+        f'<div id="do-request-list" class="{look}" data-search="{esc(bl_no)}" style="{s.at(12, 127, 1420, 127 + height)}">'
+        f'<div id="do-requests">{"".join(rows)}</div>'
+        + (f'<div class="do-count">{counted}</div>' if rows else "") + "</div>",
+    ]
+    toast = ""
+    if submitted:
+        done = next((r for r in everything if r["id"] == submitted), None)
+        if done:
+            files = ", ".join(d["name"] for d in done["documents"])
+            toast = _toast(True, f"DO request {done['ref']} for BL {done['bl_no']} saved, with {files}.", reference=done["ref"])
+    elif not bl_no:
+        ad_style = s.at(443, 176, 988, 370)
+        if _has_picture(request, s):
+            ad_style += (
+                f";background-image:url('/odex/screens/{s.file}');background-size:100cqw auto;"
+                "background-position:calc(-443 * var(--px)) calc(-176 * var(--px))"
+            )
+            ad = f'<div id="advertisement" class="live ad" style="{ad_style}"></div>'
+        else:
+            ad = f'<div id="advertisement" class="live ad stand-in" style="{ad_style}">Advertisement</div>'
+        live.append(ad + f'<button id="ad-close" class="live hot" type="button" title="Close" style="{s.at(963, 178, 985, 196)}"></button>')
+    return _page("Search DO Request", toast + _shot(request, s, "\n".join(live)), script=_DO_LIST_SCRIPT, style=_DO_STYLE)
+
+
+@router.get("/epayment/do-request/bl-liner")
+def do_request_liner(request: Request, bl_no: str = "") -> Response:
+    """What fills the Liner/FF-Issuer once the BL No. is entered."""
+    if current_user(request) is None:
+        return JSONResponse({"liner": ""}, status_code=401)
+    return JSONResponse({"liner": _liner_of(forms.code(bl_no))})
+
+
+def _do_request_page(request: Request, values: dict[str, str], problems: list[str] | None = None) -> Response:
+    s = DO_REQUEST_FORM
+    toast = _toast(False, "The DO request was not saved.", problems=problems) if problems else ""
+    pick = values.get
+    standard = "".join(
+        f'<tr data-document="{esc(name)}"><td>{esc(name)}</td><td><input type="checkbox" disabled></td><td></td>'
+        f'<td><span class="clip">{_CLIP}</span></td><td></td></tr>'
+        for name in DO_DOCUMENTS
+    )
+    columns = "".join(f'<col style="width:calc({w} * var(--px))">' for w in (734, 136, 336, 40)) + "<col>"
+    ticked = " checked" if pick("payment_not_via_odex") else ""
+    live = f"""<form id="do-request-form" action="{DO_REQUESTS}/new" method="post" enctype="multipart/form-data" data-lookup="{DO_REQUESTS}/bl-liner" data-documents="{esc(json.dumps(ROW_DOCUMENTS))}">
+<input id="bl-no" name="bl_no" class="live field bl" autocomplete="off" value="{esc(pick("bl_no", ""))}" style="{s.at(176, 104, 466, 129)}">
+<input id="liner-issuer" name="liner_issuer" class="live field" readonly tabindex="-1" value="{esc(pick("liner_issuer", ""))}" style="{s.at(642, 104, 933, 129)}">
+<select id="location" name="location" class="live field" style="{s.at(1109, 104, 1400, 129)}">{_options(LOCATIONS, pick("location", _location(request)))}</select>
+<select id="cargo-type" name="cargo_type" class="live field" style="{s.at(1576, 104, 1866, 129)}">{_options(CARGO_TYPES, pick("cargo_type", ""))}</select>
+<select id="destuff-type" name="destuff_type" class="live field" style="{s.at(176, 137, 466, 161)}">{_options(DESTUFF_TYPES, pick("destuff_type", ""))}</select>
+<select id="seaway-bl" name="seaway_bl" class="live field" style="{s.at(715, 137, 933, 161)}">{_options(YES_NO, pick("seaway_bl", ""))}</select>
+<label class="live tick" title="Payment not via ODeX" style="{s.at(51, 176, 70, 195)}"><input id="payment-not-via-odex" name="payment_not_via_odex" type="checkbox" value="1"{ticked}></label>
+<input id="runner-boy" name="runner_boy" class="live field" autocomplete="off" placeholder="Runner Boy" value="{esc(pick("runner_boy", ""))}" style="{s.at(620, 170, 820, 191)}">
+<textarea id="remarks" name="remarks" class="live field box" style="{s.at(1109, 171, 1400, 207)}">{esc(pick("remarks", ""))}</textarea>
+<input id="mobile-no" name="mobile_no" class="live field" autocomplete="off" placeholder="Mobile No" value="{esc(pick("mobile_no", ""))}" style="{s.at(1649, 170, 1866, 191)}">
+<input id="hss-customer-name" name="hss_customer_name" class="live field" autocomplete="off" value="{esc(pick("hss_customer_name", ""))}" style="{s.at(176, 213, 466, 237)}">
+<textarea id="factory-address" name="factory_address" class="live field box" style="{s.at(642, 215, 933, 253)}">{esc(pick("factory_address", ""))}</textarea>
+<input id="factory-pin" name="factory_pin" class="live field" autocomplete="off" value="{esc(pick("factory_pin", ""))}" style="{s.at(1109, 213, 1400, 237)}">
+<button id="add-row" class="live hot" type="button" title="Add Row" style="{s.at(16, 377, 97, 400)}"></button>
+<button id="delete-row" class="live hot" type="button" title="Delete Row" style="{s.at(102, 377, 199, 400)}"></button>
+<div id="document-list" class="live documents" style="{s.at(16, 444, 1856, 619)}"><table id="document-rows"><colgroup>{columns}</colgroup><tbody>{standard}</tbody></table></div>
+<button id="save" class="live hot" type="submit" title="SAVE" style="{s.at(890, 661, 952, 685)}"></button>
+</form>
+<a id="back" class="live hot" title="BACK" href="{DO_REQUESTS}" style="{s.at(956, 661, 1006, 685)}"></a>"""
+    return _page(
+        "DO Request", toast + _shot(request, s, live), script=_DO_FORM_SCRIPT, style=_DO_STYLE,
+        status_code=400 if problems else 200,
+    )
+
+
+@router.get("/epayment/do-request/new")
+def new_do_request(request: Request) -> Response:
+    if current_user(request) is None:
+        return to_login(request)
+    return _do_request_page(request, {})
+
+
+@router.post("/epayment/do-request/new")
+async def create_do_request(request: Request) -> Response:
+    """SAVE: the request waits for CMA CGM to issue the delivery order (the control panel)."""
+    user = current_user(request)
+    if user is None:
+        return to_login(request)
+    form = await request.form()
+    keys = ("bl_no", "liner_issuer", "location", "cargo_type", "destuff_type", "seaway_bl", "runner_boy", "mobile_no",
+            "remarks", "hss_customer_name", "factory_address", "factory_pin")
+    values = {key: forms.text(form, key) for key in keys}
+    values["bl_no"] = forms.code(values["bl_no"])
+    values["payment_not_via_odex"] = "1" if form.get("payment_not_via_odex") else ""
+    liner = _liner_of(values["bl_no"])
+    problems = []
+    if not liner:
+        problems.append("Enter the BL No.")
+    elif values["liner_issuer"] != liner:
+        problems.append("The Liner/FF-Issuer is empty: ODeX fills it from the BL No. once you leave that field.")
+    if values["location"] not in LOCATIONS:
+        problems.append("Select the Location.")
+    if values["cargo_type"] not in CARGO_TYPES:
+        problems.append("Select the Cargo Type.")
+    if values["destuff_type"] not in DESTUFF_TYPES:
+        problems.append("Select the DE Stuffing Type.")
+    if values["seaway_bl"] not in YES_NO:
+        problems.append("Select Seaway BL/Telex BL.")
+    if not values["payment_not_via_odex"]:
+        problems.append("Add the payment details, or tick Payment not via ODeX.")
+    mobile = re.sub(r"\D", "", values["mobile_no"])
+    if values["mobile_no"] and len(mobile) != 10:
+        problems.append("Enter the 10-digit Mobile No.")
+    if not values["factory_address"]:
+        problems.append("Enter the Factory Address.")
+    if not re.fullmatch(r"\d{6}", values["factory_pin"]):
+        problems.append("Enter the 6-digit Factory Location PIN.")
+    documents = []
+    rows = sorted(int(key[9:]) for key in form.keys() if key.startswith("doc_file_") and key[9:].isdigit())
+    for row in rows:
+        attached = await forms.attachment(form, f"doc_file_{row}", f"the document in row {row}", problems, required=False)
+        if attached is None:
+            continue
+        name = forms.text(form, f"doc_name_{row}")
+        if name not in ROW_DOCUMENTS:
+            problems.append(f"Select the Document Name in row {row}.")
+        documents.append((name, *attached))
+    if not documents and not any("row" in problem for problem in problems):
+        problems.append("Add a row and attach the documents: the Document List is required.")
+    store = store_of(request)
+    try:
+        if problems:
+            raise forms.Rejected(*problems)
+        with store.change() as data:
+            for earlier in data["do_requests"]:
+                if earlier["bl_no"] == values["bl_no"] and earlier["status"] != "Rejected":
+                    raise forms.Rejected(
+                        f"A DO request for BL {values['bl_no']} is already there: {earlier['ref']} ({earlier['status']})."
+                    )
+            item_id = secrets.token_hex(6)
+            data["do_requests"].append({
+                "id": item_id, "ref": next_ref(data, "DOR", 4), "bl_no": values["bl_no"], "liner": liner,
+                "location": values["location"], "cargo_type": values["cargo_type"], "destuff_type": values["destuff_type"],
+                "seaway_bl": values["seaway_bl"], "payment_not_via_odex": True, "runner_boy": values["runner_boy"],
+                "mobile_no": mobile, "remarks": values["remarks"], "hss_customer_name": values["hss_customer_name"],
+                "factory_address": values["factory_address"], "factory_pin": values["factory_pin"],
+                "documents": [
+                    {"doc_type": name, "name": file_name, "size": len(content), "file": store.add_file(data, content, file_name)}
+                    for name, file_name, content in documents
+                ],
+                "status": "Submitted", "created_at": now(), "by": user,
+            })
+    except forms.Rejected as rejected:
+        return _do_request_page(request, values, rejected.problems)
+    return RedirectResponse(f"{DO_REQUESTS}?submitted={item_id}", status_code=303)

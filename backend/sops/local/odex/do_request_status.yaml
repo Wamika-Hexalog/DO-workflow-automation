@@ -1,12 +1,15 @@
-# Check a DO request on ODeX (e-Payment → DO Request) and, once CMA CGM has
-# issued the delivery order, download the eDO. Runs once per house bill, and is
-# safe to run again: it only reads.
+# Check a DO request on ODeX (ePayment → Documents → DO Request, as the team's guide
+# "DO final steps corrected" reaches it) and, once CMA CGM has issued the delivery
+# order, download the eDO. Runs once per house bill, and is safe to run again: it
+# only reads.
 #
-# Written for the local ODeX (make portals). The real page's selectors aren't known
-# yet; sops/local/README.md says what's needed to point it at the real one.
+# Written for the local ODeX (make portals). Where the real ODeX offers the eDO isn't
+# known: the guide stops at SAVE. sops/local/README.md says what's needed to point it
+# at the real one.
 #
 # Params, built by app/portal_params.py (step odex_do_request_status):
 #   odex_url       where ODeX is: DO_ODEX_URL, the local one by default
+#   odex_location  job: ODeX location (the MBL's place of delivery)
 #   hbl_no         the house B/L the request is for
 #   edo_save_path  where to save the eDO, with the job's files
 #
@@ -110,17 +113,69 @@ steps:
     method: playwright
     selector: "#epayment-location"
 
-  # The team's ODeX guide doesn't reach the DO request yet, so its page is opened directly.
-  - action: goto
-    description: Open DO Request
+  - action: execute_script
+    description: Choose ePayment's location
     method: playwright
-    url: "{params.odex_url}/e-payment/do-request"
-    wait_for: domcontentloaded
+    script_args:
+      location: params.odex_location
+    script: |
+      ({ location }) => {
+        const select = document.querySelector('#epayment-location');
+        const option = [...select.options].find((o) => o.value === location || o.text.trim() === location);
+        if (!option) throw new Error(`ODeX has no location "${location}"`);
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+  - action: click
+    description: Open ePayment
+    method: playwright
+    selector: "#epayment-go"
+
+  - action: wait_for_selector
+    description: Wait for ePayment's main page
+    method: playwright
+    selector: "#edo-search"
+
+  - action: click
+    description: Open the Documents menu
+    method: playwright
+    selector: "#menu-documents"
+
+  - action: click
+    description: Go to DO Request
+    method: playwright
+    selector: "#menu-do-request"
 
   - action: wait_for_selector
     description: Wait for the list of DO requests
     method: playwright
-    selector: "#do-requests"
+    selector: "#search-bl"
+
+  - action: execute_script
+    description: Close the advertisement, if there is one
+    method: playwright
+    script: |
+      () => {
+        const close = document.querySelector('#ad-close');
+        if (close && close.checkVisibility()) close.click();
+      }
+
+  - action: fill
+    description: Search for the house B/L
+    method: playwright
+    selector: "#search-bl"
+    value_from: params.hbl_no
+
+  - action: click
+    description: Search
+    method: playwright
+    selector: "#search-bl-go"
+
+  - action: wait_for_selector
+    description: Wait for the B/L's DO requests
+    method: playwright
+    selector: "#do-request-list[data-search='{params.hbl_no}']"
 
   # The list is newest first, so the first row for the B/L is its latest request.
   # Marks the eDO link for the download step, which takes a fixed selector.
@@ -132,7 +187,7 @@ steps:
       hbl_no: params.hbl_no
     script: |
       ({ hbl_no }) => {
-        const row = [...document.querySelectorAll('#do-requests tbody tr[data-bl]')].find((r) => r.dataset.bl === hbl_no);
+        const row = [...document.querySelectorAll('#do-requests [data-bl]')].find((r) => r.dataset.bl === hbl_no);
         if (!row) throw new Error(`ODeX has no DO request for B/L ${hbl_no}`);
         const issued = row.dataset.status === 'DO Issued';
         if (issued) row.querySelector('a.download-edo').id = 'edo-to-download';
