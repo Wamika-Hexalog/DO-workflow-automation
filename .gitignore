@@ -9,3 +9,7 @@ Docs/
 backend/assets/private/
 .env
 !.env.example
+
+# Local working notes
+/HANDOFF.md
+/TASKS.md
