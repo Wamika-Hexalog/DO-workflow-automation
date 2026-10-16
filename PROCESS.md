@@ -4,7 +4,7 @@ These are the steps of one shipment's delivery order process, from the pre-alert
 
 The steps run only when `DO_AUTOMATE_PORTALS` is on. `make demo-local` turns it on. The app reads a mail only if its subject or body has `#DOHACK`. A marked mail in a wording no rule knows is read by Gemini, and the job's History says so (see the README's Email section). The mail examples below use demo values.
 
-| # | Step | Starts with | Who acts | Task under Process |
+| # | Step | Starts with | Who acts | Task in the Control Tower |
 |---|---|---|---|---|
 | 1 | The pre-alert opens the job | The pre-alert mail | The app | none (a mail) |
 | 2 | Request the DO invoice on ODeX | Step 1 attaches the MBL | The agent | Request the DO invoice on ODeX |
@@ -145,13 +145,13 @@ Then the two confirmations of step 7 come up for ops.
 
 CMA CGM's RTGS Confirmation page is filed twice, once for each payment Finance made: first the delivery (the DO invoice), then the security deposit. Each filing has its own UTR and gets its own receipt by mail.
 
-**Starts with:** ops approve each filing under Process. The two tasks come up together, in that order. Each task shows the amount, the last 4 digits of the UTR and the date. The delivery's task also shows the invoice. A task comes up only when the job has every value the page needs.
+**Starts with:** ops approve each filing in the Control Tower. The two tasks come up together, in that order. Each task shows the amount, the last 4 digits of the UTR and the date. The delivery's task also shows the invoice. A task comes up only when the job has every value the page needs.
 
 The two filings have the same Contact Details, bank account and Date of Transfer: `forwarder_name`, `rtgs_contact_name`, `rtgs_contact_number`, the emails for the receipts (`do_mailbox`), `payer_account_no` and `payment_date`. These parts are different:
 
 | | 7a. The delivery | 7b. The security deposit |
 |---|---|---|
-| Task under Process | Confirm the shipment payment on CMA CGM's RTGS page | Confirm the security deposit on CMA CGM's RTGS page |
+| Task in the Control Tower | Confirm the shipment payment on CMA CGM's RTGS page | Confirm the security deposit on CMA CGM's RTGS page |
 | UTR Number | `payment_utr` (Finance's "Invoice UTR") | `deposit_utr` (Finance's "Deposit UTR") |
 | Amount | `do_invoice_amount` | `deposit_amount` (40000) |
 | Invoice Details, row 1 | Security Deposit not ticked. Invoice Number: `do_invoice_no`. BL Number: the MBL. Amount: the invoice's. | Security Deposit ticked, so there is no Invoice Number. BL Number: the MBL (the OBL). Amount: the deposit's. |
@@ -235,7 +235,7 @@ The agent opens Documents → DO Request on ODeX, finds each HBL and downloads i
 
 ## Reminders and the morning digest
 
-A step that waits too long mails its contact, as the team's table of 16 Oct 2026 sets it. The clock is the one on the Process page. The first reminder goes after the first time below, then one more at each repeat, until the end of the window. At the end of the window, one escalation goes to the next person, with the contact in Cc. A reminder missed while the app was off isn't sent late: only the latest one due goes out.
+A step that waits too long mails its contact, as the team's table of 16 Oct 2026 sets it. The clock is the one in the Control Tower. The first reminder goes after the first time below, then one more at each repeat, until the end of the window. At the end of the window, one escalation goes to the next person, with the contact in Cc. A reminder missed while the app was off isn't sent late: only the latest one due goes out.
 
 | Step | First reminder | Then every | Window | Mail to | Escalate to |
 |---|---|---|---|---|---|
@@ -248,7 +248,7 @@ A step that waits too long mails its contact, as the team's table of 16 Oct 2026
 | 11 DO request | 2 h | 3 h | 24 h | the ops lead | the manager |
 | 2 to 11, the whole run | - | - | 12 days | the ops lead | the manager |
 
-The hours are clock hours: nights and Sundays count. Each contact is a setting in `backend/.env` (`REMINDERS_OPS_LEAD`, `REMINDERS_MANAGER`, `REMINDERS_ENVOGUE_POC`, `REMINDERS_CMA_POC`, `REMINDERS_ODEX_POC`); a contact left empty gets no mail. Reminders don't copy `mail_cc`. The Process page shows, under each clock, when the next reminder goes, and marks a step "Late" once its first reminder is due.
+The hours are clock hours: nights and Sundays count. Each contact is a setting in `backend/.env` (`REMINDERS_OPS_LEAD`, `REMINDERS_MANAGER`, `REMINDERS_ENVOGUE_POC`, `REMINDERS_CMA_POC`, `REMINDERS_ODEX_POC`); a contact left empty gets no mail. Reminders don't copy `mail_cc`. The Control Tower shows, under each clock, when the next reminder goes, and marks a step "Late" once its first reminder is due.
 
 Each morning at 09:30 IST, the digest goes to `DIGEST_TO`: every open job, the steps that wait and for how long, and which are late.
 
@@ -262,7 +262,7 @@ The check runs every 10 minutes. To run it now: send `customs/do.reminders.check
 
 ## Where to look
 
-- **The job:** Process shows every step above, 1 to 12, in order. Each step says where it stands: done, done outside the app (the job was already past it before the app ran it), needs you, waiting on Finance or CMA CGM with how long it has waited, or not started. Approve and Try again are on the step. History shows each mail, each agent run and each change of stage.
+- **The job:** the Control Tower shows every step above, 1 to 12, in order. Each step says where it stands: done, done outside the app (the job was already past it before the app ran it), needs you, waiting on Finance or CMA CGM with how long it has waited, or not started. Approve and Try again are on the step. History shows each mail, each agent run and each change of stage.
 - **Questions:** Ask about this job, on the job, and the Help page. The assistant reads the app's records (the job's steps and history, the mail log, the mailbox, the agent's runs) and says why something did not happen and how to fix it. For example: "We sent the pre-alert but no job opened. Why?"
 - **Money:** the Finance page adds up every job's DO invoice (read from the PDF the agent collects in step 4), what Finance has paid, and the deposits.
 - **The workflows:** the Inngest dashboard, http://localhost:8288.
@@ -276,6 +276,6 @@ The check runs every 10 minutes. To run it now: send `customs/do.reminders.check
 3. Run `ngrok http 8000 --url=<the host in WEBHOOK_BASE_URL>`. Use no other host: the app's guard protects only that one.
 4. When the tunnel is up, run `curl -X POST http://127.0.0.1:8000/api/webhooks/graph/subscribe`. `GET /api/webhooks/status` shows the subscription.
 5. Send the pre-alert (step 1). Steps 2 to 5 run by themselves.
-6. Reply to Finance's mail with the two UTR lines (step 6). Then approve each step under Process.
+6. Reply to Finance's mail with the two UTR lines (step 6). Then approve each step in the Control Tower.
 
 Run one copy of the app on the mailbox at a time. Each copy reads every mail and runs every step.

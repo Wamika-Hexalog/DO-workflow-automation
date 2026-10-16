@@ -24,7 +24,7 @@ export function sectionTitle(id) {
     documents: "DO folder",
     review: "Review and build",
     portal: "Stages",
-    process: "Process",
+    process: "Control Tower",
     history: "History",
     ask: "Ask about this job",
   }[id];

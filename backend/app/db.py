@@ -113,8 +113,8 @@ class Task(Base):
     completed_by: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-    # When the status last changed: how long the step has waited for ops (the Process
-    # page's clock). updated_at moves with every note, so it can't tell.
+    # When the status last changed: how long the step has waited for ops (the
+    # Control Tower's clock). updated_at moves with every note, so it can't tell.
     status_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

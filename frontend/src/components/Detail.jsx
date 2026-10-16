@@ -329,7 +329,7 @@ export default function Detail({
             onClick={() => goTo("review")}
           />
           <NavItem
-            label="Process"
+            label="Control Tower"
             active={section === "process"}
             warn={shipment.tasks.some((t) => t.status === "failed")}
             state={(() => {

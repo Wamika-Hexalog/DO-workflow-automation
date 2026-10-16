@@ -5,7 +5,7 @@ waits. A rule mails its contact ``first`` after the step's clock started, then e
 ``every``, until ``until``; then it escalates once, with the contact in Cc. A reminder
 missed while the app was off isn't sent late: only the latest one due goes out.
 
-The clocks are the Process page's (process_steps.py), worked out from the database, so a
+The clocks are the Control Tower's (process_steps.py), worked out from the database, so a
 check every few minutes finds what is due: the local engine forgets its timers when it
 restarts. Each mail takes an insert-once claim (workflows/reminders.py), so none goes twice.
 """

@@ -58,12 +58,7 @@ export default function Process({ shipment, onShipment, say, goTo }) {
 
   return (
     <section>
-      <h3 className="section-title">Process</h3>
-      <p className="section-sub">
-        Every step of the job, in order, as PROCESS.md numbers it. The browser agent runs a step when its mail arrives,
-        the payments wait for your approval, and a step that failed can be started again. A step that waits on you,
-        Finance or CMA CGM shows how long it has waited and when its next reminder goes.
-      </p>
+      <h3 className="section-title">Control Tower</h3>
       <ol className="process">
         {shipment.process.map((step) => {
           const next = action(step);

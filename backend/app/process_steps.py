@@ -1,7 +1,7 @@
 """The DO process as PROCESS.md numbers it, for one job: every step, who acts on it, and
 where it stands, from the job's tasks, fields, documents and stage.
 
-The Process page shows them all. A step the job hasn't reached shows as not started, a
+The job's Control Tower shows them all. A step the job hasn't reached shows as not started, a
 step done before the app ran it (the job's data or stage is already past it) as done
 outside the app, and a wait on Finance or CMA CGM, which has no task of its own, as
 waiting, with the time it started: the clock.
