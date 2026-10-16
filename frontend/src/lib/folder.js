@@ -15,7 +15,7 @@ export function indexFolder(raw) {
   };
 }
 
-export const SECTIONS = ["shipment", "fixed", "portal", "documents", "review", "process", "history"];
+export const SECTIONS = ["shipment", "fixed", "portal", "documents", "review", "process", "history", "ask"];
 
 export function sectionTitle(id) {
   return {
@@ -26,6 +26,7 @@ export function sectionTitle(id) {
     portal: "Stages",
     process: "Process",
     history: "History",
+    ask: "Ask about this job",
   }[id];
 }
 

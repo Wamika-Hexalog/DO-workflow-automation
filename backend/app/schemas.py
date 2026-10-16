@@ -139,3 +139,20 @@ class RunOut(BaseModel):
     total_steps: int
     error_message: str | None
     extractions: list[dict[str, Any]]
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
+class AskIn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    shipment_id: str | None = None  # asked on this job's page
+    history: list[ChatTurn] = Field(default_factory=list)  # the chat so far, oldest first
+
+
+class AskOut(BaseModel):
+    answer: str
+    model: str | None  # the Gemini model that answered
+    checked: list[str]  # what it looked at

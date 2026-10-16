@@ -139,6 +139,22 @@ class IdempotencyKey(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class InboundMail(Base):
+    """A mail Graph told the app about, and what the app made of it. The assistant reads
+    it to say why a mail started nothing."""
+
+    __tablename__ = "inbound_mails"
+
+    message_id: Mapped[str] = mapped_column(String(400), primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sender: Mapped[str] = mapped_column(String(200), default="")
+    subject: Mapped[str] = mapped_column(Text, default="")
+    marked: Mapped[bool] = mapped_column(Boolean, default=False)  # it has the mail marker
+    read_by: Mapped[str] = mapped_column(String(10), default="")  # code, rules, ai, or "" when not read
+    outcome: Mapped[str] = mapped_column(Text, default="")
+    shipment_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
 class AutomationRun(Base):
     """One browser agent run: python-brain's AutomationRun, kept in SQLite."""
 

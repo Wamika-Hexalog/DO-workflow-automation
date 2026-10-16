@@ -4,6 +4,7 @@ import { useAutosave } from "../hooks/useAutosave.js";
 import { profileDone, requiredFieldsDone, SECTIONS, sectionTitle } from "../lib/folder.js";
 import { fmtMoment, initials, plural, splitLines } from "../lib/format.js";
 import { ArrowLeftIcon, CheckIcon, FileIcon, ShipIcon } from "./Icons.jsx";
+import Assistant from "./Assistant.jsx";
 import Progress from "./Progress.jsx";
 import FolderList from "./FolderList.jsx";
 import { FixedForm, ShipmentForm } from "./Forms.jsx";
@@ -192,6 +193,8 @@ export default function Detail({
     content = <Process shipment={shipment} onShipment={onShipmentSaved} say={say} goTo={goTo} />;
   } else if (section === "history") {
     content = <History shipment={shipment} stageNames={folder.stageNames} />;
+  } else if (section === "ask") {
+    content = <Assistant shipment={shipment} />;
   } else {
     content = (
       <ShipmentForm
@@ -336,6 +339,7 @@ export default function Detail({
             onClick={() => goTo("process")}
           />
           <NavItem label="History" active={section === "history"} state="" onClick={() => goTo("history")} />
+          <NavItem label="Ask about this job" active={section === "ask"} state="" onClick={() => goTo("ask")} />
           <p className="nav-note">
             {plural(shipment.docs_total, "document")} for MBL {values.mbl_no || "not set"}
             {hbls.length > 1 ? `, with HBL documents once for each of ${hbls.length} house bills.` : "."}

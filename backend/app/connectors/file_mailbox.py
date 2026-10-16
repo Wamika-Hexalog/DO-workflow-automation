@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,22 @@ class FileMailbox:
 
     async def get_message_detail(self, message_id: str) -> dict[str, Any]:
         return json.loads((self.root / message_id / "message.json").read_text())
+
+    async def fetch_emails(self, unread_only: bool = True, days_back: int = 7, max_results: int = 50) -> list[dict[str, Any]]:
+        """The newest mail in the folder, as Graph lists a mailbox. Read or not, every mail counts."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp()
+        found = sorted(
+            (p for p in self.root.glob("*/message.json") if p.stat().st_mtime >= since),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        return [
+            {
+                **json.loads(path.read_text()),
+                "id": path.parent.name,
+                "receivedDateTime": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+            }
+            for path in found[:max_results]
+        ]
 
     async def download_attachments(self, message_id: str, storage_path: str | Path) -> list[dict[str, Any]]:
         target = Path(storage_path)

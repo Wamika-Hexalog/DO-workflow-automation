@@ -263,6 +263,7 @@ The check runs every 10 minutes. To run it now: send `customs/do.reminders.check
 ## Where to look
 
 - **The job:** Process shows every step above, 1 to 12, in order. Each step says where it stands: done, done outside the app (the job was already past it before the app ran it), needs you, waiting on Finance or CMA CGM with how long it has waited, or not started. Approve and Try again are on the step. History shows each mail, each agent run and each change of stage.
+- **Questions:** Ask about this job, on the job, and the Help page. The assistant reads the app's records (the job's steps and history, the mail log, the mailbox, the agent's runs) and says why something did not happen and how to fix it. For example: "We sent the pre-alert but no job opened. Why?"
 - **The workflows:** the Inngest dashboard, http://localhost:8288.
 - **The local portals:** the control panel, http://127.0.0.1:8100/control, plays CMA CGM and Finance. With autoplay on, it answers each request after a few seconds.
 - **The data:** the database is `backend/data/do_folder.db`. A job's files are in `backend/data/files/<job id>/`. What the agent downloads is in its `portal/` folder.

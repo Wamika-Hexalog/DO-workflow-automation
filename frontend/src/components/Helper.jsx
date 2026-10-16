@@ -3,7 +3,7 @@ import mascot from "../assets/mascot-ready.webp";
 import { CloseIcon, HelpIcon } from "./Icons.jsx";
 
 // A help box in the corner. A click brings the mascot up to wave and point to the
-// FAQ; a second click, or closing the bubble, folds it back below the edge.
+// help page (the assistant and the FAQ); a second click, or closing the bubble, folds it back below the edge.
 export default function Helper({ onOpenFaq }) {
   const [out, setOut] = useState(false);
 
@@ -15,7 +15,7 @@ export default function Helper({ onOpenFaq }) {
             <CloseIcon size={14} />
           </button>
           <strong>Do you have a question?</strong>
-          <p>Look at our FAQ.</p>
+          <p>Ask the assistant, or look at our FAQ.</p>
           <button
             type="button"
             className="btn btn-sm btn-primary"
@@ -24,7 +24,7 @@ export default function Helper({ onOpenFaq }) {
               onOpenFaq();
             }}
           >
-            Open the FAQ
+            Open the help
           </button>
         </div>
       )}

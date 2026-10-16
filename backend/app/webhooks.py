@@ -22,6 +22,7 @@ from typing import Any
 import inngest
 from fastapi import APIRouter, FastAPI, Request, Response
 
+from .config import Settings
 from .connectors.graph_subscription import (
     ensure_graph_subscription,
     get_webhook_notification_url,
@@ -101,16 +102,20 @@ async def graph_subscribe() -> dict[str, Any]:
     return await ensure_graph_subscription()
 
 
-@router.get("/webhooks/status")
-async def webhook_status(request: Request) -> dict[str, Any]:
-    settings = request.app.state.rt.settings
+async def mail_status(settings: Settings) -> dict[str, Any]:
+    """Where Graph calls the app, when it last did since the app started, and the subscriptions."""
     return {
         "notification_url": get_webhook_notification_url(),
         "last_notification_at": _last_notification_at,
         "last_events_sent": _last_events_sent,
         "subscriptions": await list_graph_subscriptions() if settings.outlook_client_id else [],
-        "inject_code_prefix": settings.inject_code_prefix,
     }
+
+
+@router.get("/webhooks/status")
+async def webhook_status(request: Request) -> dict[str, Any]:
+    settings = request.app.state.rt.settings
+    return {**await mail_status(settings), "inject_code_prefix": settings.inject_code_prefix}
 
 
 async def _subscription_loop() -> None:

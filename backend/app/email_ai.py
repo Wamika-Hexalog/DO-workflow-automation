@@ -15,16 +15,13 @@ from typing import Any
 
 import httpx
 
-from . import pdfs
+from . import gemini, pdfs
 from .config import Settings
 from .email_code import InjectedCode, html_to_text
 
-API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-# A model that is retired, rate-limited or busy: the next model in the setting reads instead.
-_TRY_NEXT = (404, 429, 500, 503)
 # Gemini's busy spells are short: after a pause, each model is tried once more.
 ROUNDS, PAUSE_SECONDS = 2, 3
-# A busy model can hold a request for half a minute before it answers 503: the next one reads instead.
+# A model that takes longer is busy: the next one reads instead.
 MODEL_SECONDS = 10
 BODY_CHARS = 12000  # a long forwarded thread is cut here
 ATTACHMENT_CHARS = 3000  # the first page of an attachment is enough
@@ -153,30 +150,27 @@ async def _ask(settings: Settings, prompt: str) -> tuple[dict[str, Any], str]:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json", "responseSchema": SCHEMA},
     }
-    models = [m.strip() for m in settings.mail_ai_model.split(",") if m.strip()]
+    models = gemini.models(settings)
     tried = []
     async with httpx.AsyncClient(timeout=MODEL_SECONDS) as client:
         for model in models * ROUNDS:
             if tried and model == models[0]:
                 await asyncio.sleep(PAUSE_SECONDS)
             try:
-                response = await client.post(API.format(model=model), headers={"x-goog-api-key": settings.google_api_key}, json=request)
-            except httpx.TimeoutException:
-                tried.append(f"{model} timed out")
+                content = await gemini.generate(client, settings, model, request)
+            except gemini.Busy as exc:
+                tried.append(str(exc))
                 continue
-            if response.status_code == 200:
-                return _reading(response), model
-            if response.status_code not in _TRY_NEXT:
-                raise ReaderError(f"{model} answered {response.status_code}: {response.text[:300]}")
-            tried.append(f"{model} answered {response.status_code}")
+            except gemini.GeminiError as exc:
+                raise ReaderError(str(exc)) from exc
+            return _reading(content), model
     raise ReaderError(f"No Gemini model could read the mail: {'; '.join(tried) or 'none is set'}.")
 
 
-def _reading(response: httpx.Response) -> dict[str, Any]:
+def _reading(content: dict[str, Any]) -> dict[str, Any]:
     try:
-        parts = response.json()["candidates"][0]["content"]["parts"]
-        reading = json.loads("".join(p.get("text", "") for p in parts if not p.get("thought")))
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        reading = json.loads(gemini.text_of(content))
+    except ValueError as exc:
         raise ReaderError(f"Gemini's answer could not be read: {exc}") from exc
     if not isinstance(reading, dict) or reading.get("kind") not in KINDS:
         raise ReaderError(f"Gemini named no known kind of mail: {str(reading)[:200]}")

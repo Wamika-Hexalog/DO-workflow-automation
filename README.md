@@ -101,7 +101,7 @@ There is no general classifier. A mail is read only if it has the short marker `
 | Finance's reply to the app's payment mail | "Invoice UTR:" and "Deposit UTR:" | `payment_utr`, `deposit_utr` and, when empty, the date of transfer are filled |
 | Draft MBL and HBL mail | The MBL number | Opens the job if there is none. Each attachment goes to its slot by file name, or by what is in it. Read from the bills: HBL numbers, containers, vessel, voyage, and the consignees |
 
-Mail with the marker that no recognizer knows goes to Gemini when `GOOGLE_API_KEY` is set (`backend/app/email_ai.py`): Finance's reply in its own words, an eDO mail, a new forwarder's pre-alert. The model only says which of those kinds of mail it is and copies the identifiers it states, from the subject, the body and the first page of each attachment. The app turns that into the same facts the recognizers give, and drops any identifier the mail doesn't contain, so a guess never reaches a job. The job's History says the model read the mail, and what it found. `DO_MAIL_AI_MODEL` lists the Gemini models to try, in order: when one is busy, the next one reads. Without the key, such a mail is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers and the model):
+Mail with the marker that no recognizer knows goes to Gemini when `GOOGLE_API_KEY` is set (`backend/app/email_ai.py`): Finance's reply in its own words, an eDO mail, a new forwarder's pre-alert. The model only says which of those kinds of mail it is and copies the identifiers it states, from the subject, the body and the first page of each attachment. The app turns that into the same facts the recognizers give, and drops any identifier the mail doesn't contain, so a guess never reaches a job. The job's History says the model read the mail, and what it found. `DO_AI_MODELS` lists the Gemini models to try, in order: when one is busy, the next one reads. Without the key, such a mail is ignored, and so is a mail with no marker. To be exact about a mail, put explicit codes in the subject or the body instead (they win over the recognizers and the model):
 
 ```
 DOHACK:<stage>:<MBL>[:<arg>]
@@ -130,7 +130,11 @@ cd backend && uv run python scripts/simulate_mail.py --subject "#DOHACK Fw: ODeX
 
 The script writes the mail to `backend/data/files/inbox/` and sends the `EmailService:InboundMessage` event. The app reads a mail from there when its id is a folder there, and from Graph otherwise. In a shell, write `"${MBL}:slot"`, not `$MBL:slot`: zsh reads `:s` as a modifier.
 
-Mail without a code, or with an MBL no job has, is ignored. To receive real mail, fill in the `OUTLOOK_*`, `WEBHOOK_BASE_URL` and `GRAPH_CLIENT_STATE` variables in `backend/.env` and point a tunnel at port 8000 (`ngrok http 8000 --url=<your domain>`). On the tunnel's hostname only `POST/GET /api/webhooks/microsoft-graph` is open (Graph can't send a login; the webhook checks `clientState`). Everything else, the UI included, asks for a login from `BASIC_AUTH_USERS=user:password,...`; with none set the tunnel serves only that webhook. `/api/inngest` is never served on the tunnel. Local requests need no login. For the UI through the tunnel use `make demo`, which serves the built UI from the API on 8000. `GET /api/webhooks/status` shows the subscription.
+Mail without a code, or with an MBL no job has, is ignored. The mail log (`inbound_mails`) keeps each mail the app hears of: the sender, the subject, the marker, how it was read, and what it did or why it did nothing. To receive real mail, fill in the `OUTLOOK_*`, `WEBHOOK_BASE_URL` and `GRAPH_CLIENT_STATE` variables in `backend/.env` and point a tunnel at port 8000 (`ngrok http 8000 --url=<your domain>`). On the tunnel's hostname only `POST/GET /api/webhooks/microsoft-graph` is open (Graph can't send a login; the webhook checks `clientState`). Everything else, the UI included, asks for a login from `BASIC_AUTH_USERS=user:password,...`; with none set the tunnel serves only that webhook. `/api/inngest` is never served on the tunnel. Local requests need no login. For the UI through the tunnel use `make demo`, which serves the built UI from the API on 8000. `GET /api/webhooks/status` shows the subscription.
+
+## The assistant
+
+Ask about this job (on each job) and the Help page answer the team's questions in plain words: where a job stands and what is left, which jobs are late, why a mail opened no job, why the browser agent failed, whether a part of the app is down. Gemini answers (`backend/app/assistant.py`), through read-only tools over the jobs and their steps, the job's history, the mail log, the mailbox itself, the agent's runs, the Inngest dev server's runs, and a health check (engine, portals, tunnel, Graph subscription, empty fixed details). `PROCESS.md` is its guide. It changes nothing: it says the reason and who does what to fix it. UTRs and account numbers reach the model as their last 4 digits. It needs `GOOGLE_API_KEY`, and tries the models of `DO_AI_MODELS` in order.
 
 ## Local portals
 
@@ -177,6 +181,7 @@ Stamps carry signatures, so `backend/assets/private/` (stamps and bonds) is kept
 | POST | `/api/shipments/{id}/tasks/odex_do_request/complete` | Approves the DO request on ODeX, or confirms it was raised by hand |
 | GET | `/api/shipments/{id}/runs` | The browser agent's runs for the job |
 | GET | `/api/shipments/{id}/events` | The job's history |
+| POST | `/api/assistant` | A question to the assistant (`question`, optional `shipment_id`, and `history`, the chat so far) |
 | POST | `/api/demo/reset` | Reseeds the demo data |
 | GET, POST, PUT | `/api/inngest` | Where the Inngest dev server (or Inngest Cloud) calls the workflows |
 
@@ -186,6 +191,6 @@ Slots are named by document key, plus the house bill for per-HBL documents: `mbl
 
 Optional environment variables: `DO_DATA_DIR`, `DO_DATABASE_URL`, `DO_FOLDER_PATH`, `DO_ASSETS_DIR`, `DO_PRIVATE_DIR`, `DO_STORAGE_DIR`, `DO_DEMO_DOCS_DIR`, `DO_JOB_PREFIX` (default `HXL/IMP`), and `DO_SEED_DEMO_DATA=0` to start without demo data.
 
-Workflows and the browser agent: `INNGEST_DEV` (default on; set `0` in production with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`), `INNGEST_SERVE_ORIGIN`, `DO_ODEX_SOP` (default `backend/sops/odex/sop_odex_do_request_new.yaml`), `DO_BROWSER_HEADLESS=0` to watch the browser, `BROWSER_SLOW_MO_MS` to slow it down, `GOOGLE_API_KEY` (only for SOPs with steps that ask the model), and python-brain's `SOP_TIMEOUT_SCALE`, `BROWSER_TEARDOWN_TIMEOUT_S` and `BROWSER_SOP_MAX_SECONDS`. They can all go in `backend/.env`.
+Workflows and the browser agent: `INNGEST_DEV` (default on; set `0` in production with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`), `INNGEST_SERVE_ORIGIN`, `DO_ODEX_SOP` (default `backend/sops/odex/sop_odex_do_request_new.yaml`), `DO_BROWSER_HEADLESS=0` to watch the browser, `BROWSER_SLOW_MO_MS` to slow it down, `GOOGLE_API_KEY` (the mail reader, the assistant, and SOP steps that ask the model) with `DO_AI_MODELS`, and python-brain's `SOP_TIMEOUT_SCALE`, `BROWSER_TEARDOWN_TIMEOUT_S` and `BROWSER_SOP_MAX_SECONDS`. They can all go in `backend/.env`.
 
 The portals: `DO_ODEX_URL` and `DO_CMA_RTGS_URL` (default: the local ones on :8100), `DO_BROWSER_ALLOWED_HOSTS` (comma-separated hosts the agent may open; default `127.0.0.1,localhost`; `*` for any), and for the local ODeX `LOCAL_ODEX_USERNAME`, `LOCAL_ODEX_PASSWORD` and `LOCAL_ODEX_ACCOUNT`.

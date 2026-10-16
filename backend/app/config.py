@@ -88,11 +88,11 @@ class Settings:
     mail_marker: str = "#DOHACK"
     # House bill numbers to look for in an HBL file. Add the format of each forwarder you receive from.
     hbl_pattern: str = r"(?:WOLSZSE\d{8}[A-Z]|MSEC\d{12})"
-    # The Gemini models that read a marked mail no rule knows (app/email_ai.py), in the
-    # order to try them: when one is busy or retired, the next one reads. Without a key,
-    # such a mail is left unread.
+    # The Gemini models the app asks, in the order to try them: when one is busy or retired,
+    # the next one answers. They read a marked mail no rule knows (app/email_ai.py) and
+    # answer the assistant (app/assistant.py). Without a key, neither runs.
     google_api_key: str = ""
-    mail_ai_model: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
+    ai_models: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite"
     # Who hears about a step that waits too long (app/reminders.py), comma-separated
     # addresses. A contact left empty gets no mail.
     reminders_ops_lead: str = ""
@@ -156,7 +156,7 @@ class Settings:
             mail_marker=os.getenv("MAIL_MARKER", cls.mail_marker),
             hbl_pattern=os.getenv("HBL_PATTERN", cls.hbl_pattern),
             google_api_key=os.getenv("GOOGLE_API_KEY", ""),
-            mail_ai_model=os.getenv("DO_MAIL_AI_MODEL", cls.mail_ai_model),
+            ai_models=os.getenv("DO_AI_MODELS", cls.ai_models),
             reminders_ops_lead=os.getenv("REMINDERS_OPS_LEAD", ""),
             reminders_manager=os.getenv("REMINDERS_MANAGER", ""),
             reminders_envogue_poc=os.getenv("REMINDERS_ENVOGUE_POC", ""),

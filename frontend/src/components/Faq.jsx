@@ -2,6 +2,7 @@ import { useState } from "react";
 import mascotSearch from "../assets/mascot-search.webp";
 import mascotReady from "../assets/mascot-ready.webp";
 import { FileIcon, ListCheckIcon, SearchIcon, ShipIcon } from "./Icons.jsx";
+import Assistant from "./Assistant.jsx";
 import { stageTone } from "./Route.jsx";
 
 const TOPICS = [
@@ -70,6 +71,7 @@ export default function Faq({ stages }) {
 
       <div className="faq-layout">
         <div className="faq-main">
+          <Assistant />
           <div className="faq-topics" role="tablist" aria-label="Topics">
             {[{ id: "all", title: "All" }, ...TOPICS].map((t) => {
               const n = t.id === "all" ? QUESTIONS.length : QUESTIONS.filter(([id]) => id === t.id).length;

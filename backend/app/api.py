@@ -26,11 +26,13 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import assemble, checks, containers, letters, pdfs, process_steps, reminders, service, tasks
+from . import assemble, assistant, checks, containers, letters, pdfs, process_steps, reminders, service, tasks
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
 from .runtime import Runtime
 from .schemas import (
+    AskIn,
+    AskOut,
     BuildIn,
     EventOut,
     FileOut,
@@ -598,6 +600,13 @@ def list_events(shipment_id: str, session: SessionDep) -> list[EventOut]:
         select(Event).where(Event.shipment_id == shipment.id).order_by(Event.at.desc(), Event.id.desc())
     )
     return [EventOut(at=service.aware(e.at), action=e.action, detail=e.detail) for e in rows]
+
+
+@router.post("/assistant", response_model=AskOut)
+async def ask_assistant(body: AskIn, rt: RuntimeDep) -> AskOut:
+    """A question to the assistant (app/assistant.py), with the chat so far."""
+    history = [turn.model_dump() for turn in body.history]
+    return AskOut(**await assistant.ask(rt, body.question.strip(), body.shipment_id, history))
 
 
 @router.post("/demo/reset")

@@ -56,5 +56,7 @@ export const api = {
   completeTask: (id, key) => request("POST", `/shipments/${id}/tasks/${key}/complete`, {}),
   portal: (id) => request("GET", `/shipments/${id}/portal`),
   events: (id) => request("GET", `/shipments/${id}/events`),
+  // The assistant: history is the chat so far, oldest first.
+  ask: (question, shipmentId, history) => request("POST", "/assistant", { question, shipment_id: shipmentId, history }),
   resetDemo: () => request("POST", "/demo/reset"),
 };

@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 
 from . import assemble, containers, pdfs, service
-from .db import Shipment, utcnow
+from .db import InboundMail, Shipment, utcnow
 from .folder import split_list
 from .runtime import Runtime
 
@@ -216,4 +216,16 @@ def record_job(rt: Runtime, shipment_id: str, stage: str, detail: str, fields: d
             shipment.data = {**shipment.data, **empty}
             shipment.changed_at = utcnow()
         service.log(session, shipment_id, f"email_{stage}", detail)
+        session.commit()
+
+
+def log_mail_job(rt: Runtime, message_id: str, values: dict[str, Any]) -> None:
+    """Writes a mail's line in the mail log, or what became of the mail."""
+    with rt.sessionmaker() as session:
+        mail = session.get(InboundMail, message_id)
+        if mail is None:
+            mail = InboundMail(message_id=message_id)
+            session.add(mail)
+        for name, value in values.items():
+            setattr(mail, name, value)
         session.commit()

@@ -31,7 +31,7 @@ def answer(**reading: object) -> httpx.Response:
 def reader(tmp_path, private_dir):
     """The app with a Gemini key and two models to try."""
     client = RecordingInngest()
-    settings = settings_for(tmp_path, private_dir, google_api_key="test-key", mail_ai_model="model-a,model-b")
+    settings = settings_for(tmp_path, private_dir, google_api_key="test-key", ai_models="model-a,model-b")
     app = create_app(settings, client)
     with TestClient(app) as api:
         yield api, Engine(app, client), client
