@@ -1,6 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { api } from "../api.js";
 import mascot from "../assets/mascot-search.webp";
+
+// Each chat lives here, not in the panel: one for each job and one for the Help page. The panel
+// goes away when the person opens another section or page; the chat must still be there when
+// they come back, with an answer that arrived while they were away.
+const chats = new Map();
+const listeners = new Set();
+const NEW_CHAT = { turns: [], busy: false, draft: "" };
+
+const chatOf = (key) => chats.get(key) || NEW_CHAT;
+
+function change(key, update) {
+  chats.set(key, { ...chatOf(key), ...update(chatOf(key)) });
+  listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 const ABOUT_A_JOB = [
   "Where does this job stand, and what is left?",
@@ -64,10 +83,10 @@ function history(turns) {
 }
 
 export default function Assistant({ shipment }) {
-  const [turns, setTurns] = useState([]);
-  const [question, setQuestion] = useState("");
-  const [busy, setBusy] = useState(false);
+  const key = shipment ? `job:${shipment.id}` : "help";
+  const { turns, busy, draft: question } = useSyncExternalStore(subscribe, () => chatOf(key));
   const threadRef = useRef(null);
+  const kept = useRef(turns.length); // the turns already there when the panel opened: they don't fade in again
 
   useEffect(() => {
     const thread = threadRef.current;
@@ -76,19 +95,17 @@ export default function Assistant({ shipment }) {
 
   const ask = async (text) => {
     const q = text.trim();
-    if (!q || busy) return;
-    const before = history(turns);
-    setTurns((t) => [...t, { role: "user", text: q }]);
-    setQuestion("");
-    setBusy(true);
+    if (!q || chatOf(key).busy) return;
+    const before = history(chatOf(key).turns);
+    change(key, (chat) => ({ turns: [...chat.turns, { role: "user", text: q }], busy: true, draft: "" }));
+    let answer;
     try {
       const reply = await api.ask(q, shipment ? shipment.id : null, before);
-      setTurns((t) => [...t, { role: "assistant", text: reply.answer, checked: reply.checked, model: reply.model }]);
+      answer = { role: "assistant", text: reply.answer, checked: reply.checked, model: reply.model };
     } catch (err) {
-      setTurns((t) => [...t, { role: "assistant", text: err.message, error: true }]);
-    } finally {
-      setBusy(false);
+      answer = { role: "assistant", text: err.message, error: true };
     }
+    change(key, (chat) => ({ turns: [...chat.turns, answer], busy: false }));
   };
 
   return (
@@ -102,6 +119,18 @@ export default function Assistant({ shipment }) {
             It changes nothing.
           </p>
         </div>
+        {turns.length > 0 && !busy && (
+          <button
+            type="button"
+            className="btn btn-quiet btn-sm ask-clear"
+            onClick={() => {
+              kept.current = 0;
+              change(key, () => NEW_CHAT);
+            }}
+          >
+            Start again
+          </button>
+        )}
       </header>
       <div className="ask-thread" ref={threadRef} aria-live="polite">
         {turns.length === 0 && (
@@ -115,11 +144,11 @@ export default function Assistant({ shipment }) {
         )}
         {turns.map((turn, i) =>
           turn.role === "user" ? (
-            <p key={i} className="ask-turn user">
+            <p key={i} className={`ask-turn user${i >= kept.current ? " fresh" : ""}`}>
               {turn.text}
             </p>
           ) : (
-            <div key={i} className={`ask-turn assistant${turn.error ? " error" : ""}`}>
+            <div key={i} className={`ask-turn assistant${turn.error ? " error" : ""}${i >= kept.current ? " fresh" : ""}`}>
               <Answer text={turn.text} />
               {turn.checked && turn.checked.length > 0 && (
                 <small className="ask-checked">
@@ -131,7 +160,7 @@ export default function Assistant({ shipment }) {
           ),
         )}
         {busy && (
-          <p className="ask-turn assistant pending">
+          <p className="ask-turn assistant pending fresh">
             <span className="ask-dots" aria-hidden="true">
               <i />
               <i />
@@ -155,7 +184,7 @@ export default function Assistant({ shipment }) {
           maxLength={2000}
           placeholder={shipment ? "Ask about this job" : "Ask about a job, a mail or the app"}
           aria-label="Your question"
-          onChange={(e) => setQuestion(e.target.value)}
+          onChange={(e) => change(key, () => ({ draft: e.target.value }))}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

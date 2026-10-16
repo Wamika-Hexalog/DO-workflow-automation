@@ -754,12 +754,15 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
 .ask-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
 .ask-head img { flex: none; width: 34px; height: auto; }
 .ask-head h2 { font-size: 16px; font-weight: 700; }
+.ask-head > div { flex: 1; min-width: 0; }
+.ask-clear { flex: none; align-self: flex-start; }
 .ask-head p { margin-top: 2px; color: var(--ink-2); font-size: 13px; }
 .ask-thread { display: grid; gap: 10px; max-height: 440px; overflow-y: auto; padding: 2px; }
 .ask-starters { display: flex; flex-wrap: wrap; gap: 8px; }
 .ask-chip { padding: 7px 12px; border: var(--hair) solid var(--rule-control); border-radius: 999px; background: var(--sheet); color: var(--ink); font-size: 13px; text-align: left; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
 .ask-chip:hover { border-color: var(--accent); background: var(--wash); }
-.ask-turn { max-width: 88%; margin: 0; padding: 10px 14px; border-radius: var(--radius-md); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; animation: card-in .25s var(--ease-out) both; }
+.ask-turn { max-width: 88%; margin: 0; padding: 10px 14px; border-radius: var(--radius-md); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.ask-turn.fresh { animation: card-in .25s var(--ease-out) both; }
 .ask-turn.user { justify-self: end; border-bottom-right-radius: var(--radius-xs); background: var(--hexa-violet); color: #FFFFFF; white-space: pre-wrap; }
 .ask-turn.assistant { justify-self: start; border: var(--hair) solid var(--rule); border-bottom-left-radius: var(--radius-xs); background: var(--panel); }
 .ask-turn.assistant p, .ask-turn.assistant ul, .ask-turn.assistant ol { margin: 0; }
