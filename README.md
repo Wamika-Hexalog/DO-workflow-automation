@@ -140,6 +140,17 @@ Ask about this job (on each job) and the Help page answer the team's questions i
 
 The Finance page, on the main dashboard, adds up the DO invoices of every job. The browser agent collects each invoice from ODeX into the job's `portal/` folder; `backend/app/invoice_reader.py` reads its two tables (the charges, and the GST lines) and its totals from the PDF, and accepts them only when the lines add up to the totals. The page shows the totals invoiced, paid and still to pay, the security deposits, the charges by type, the GST by service, and each invoice with its payment and deposit. It filters by period, stage, payment, charge and job, and exports the invoices shown as CSV. The local ODeX's invoices are laid out as CMA CGM's import tax invoice, so the demo jobs read the same way.
 
+## Demo data
+
+`backend/scripts/demo_data.py` replaces the demo jobs with dummy jobs that look like real ones: one at each step of the process, several with a problem for the assistant to explain (a pre-alert whose HBL is a scan, a Finance reply with a wrong MBL, another job's DO Receipt, a failed browser run, a pre-alert without `#DOHACK`), and four older finished jobs for the Finance page. The app's own code makes every record: the mail workflow reads each mail, the process jobs record each portal step, and the local CMA CGM answers each request.
+
+1. Stop the demo. The script does not run while the app or the local portals run.
+2. Fill Finance's email in the fixed details.
+3. Run `cd backend && uv run python scripts/demo_data.py`. It keeps `HXL/IMP/26-27/0439` if that job is there (`--keep` names another one), and first copies the data to `backend/data/backups/<time>/`.
+4. Start the demo again. The reminder check then mails the reminder contacts about the dummy steps that wait too long.
+
+Times count back from when the script runs, so run it shortly before a demo. On a machine that has no 0439, the dummy jobs take the numbers below it, and the shipment you then run end to end gets 0439.
+
 ## Local portals
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
