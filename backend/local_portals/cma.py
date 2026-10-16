@@ -15,7 +15,8 @@ import logging
 import re
 import secrets
 import threading
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -27,14 +28,46 @@ from .store import Store, next_number, now
 
 logger = logging.getLogger(__name__)
 
-# The DO invoice: per container and per B/L, plus GST. One container comes to
-# Rs. 54,720.68, as on the sample DO receipt.
+# The DO invoice, as CMA CGM's import invoice prints it: charges per container, per TEU
+# and per invoice, one of them in dollars, and an IGST line for each. One 40' container
+# comes to Rs. 54,720.68, as on the sample invoice and DO receipt.
 TARIFF = (
-    ("Terminal handling charges", "per container", 33873.46),
-    ("Delivery order fee", "per B/L", 7500.00),
-    ("Documentation fee", "per B/L", 5000.00),
+    # charge, its GST line, SAC, based on, rate (by container length where it differs), currency
+    ("Terminal Handling Charge (DTHC) at destination", "THC DEST", "996711", "UNI", {"20": 11640.00, "40": 17465.00}, "INR"),
+    ("Container maintenance Fee at destination", "CTR MAINT DEST", "996799", "TEU", 2225.00, "INR"),
+    ("Washing Charges", "CLEANING CTR DE", "996799", "TEU", 2125.00, "INR"),
+    ("Container inspection & Survey Fee at destination", "INSPECTION FEES", "996799", "UNI", 1100.00, "INR"),
+    ("Documentation Fee at destination", "IMPORT DOC FEE", "996799", "FIX", 7300.00, "INR"),
+    ("House Bill of Lading Fee at destination", "HOUSE BL DEST", "996799", "FIX", 5400.00, "INR"),
+    ("Customs Inspection Fee at destination", "CUST INSP DEST", "996799", "UNI", 64.00, "USD"),
 )
 GST_RATE = 0.18
+USD_RATE = 100.13225  # the sample invoice's rate of exchange
+POS_STATE = "HARYANA"  # where the service is consumed: the importer's state
+
+
+def invoice_lines(sizes: Sequence[str], usd_rate: float = USD_RATE) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The DO invoice's charges and GST lines for containers of these sizes (40HC, 20GP),
+    in rows by size as CMA CGM prints them. A charge per invoice comes once."""
+    charges: list[dict[str, Any]] = []
+    taxes: list[dict[str, Any]] = []
+    for group, (size, count) in enumerate(Counter(sizes or ["40HC"]).items()):
+        quantities = {"UNI": count, "TEU": count * (1 if size.startswith("20") else 2), "FIX": 1}
+        for charge, gst, sac, basis, rate, currency in TARIFF:
+            if basis == "FIX" and group:
+                continue
+            unit = rate[size[:2]] if isinstance(rate, dict) else rate
+            amount = round(unit * quantities[basis], 2)
+            inr = round(amount * usd_rate, 2) if currency == "USD" else amount
+            charges.append({
+                "size_type": size, "description": charge, "tax": "IH", "quantity": quantities[basis], "basis": basis,
+                "rate": unit, "currency": currency, "amount": amount, "amount_inr": inr,
+            })
+            taxes.append({
+                "description": f"UP IGST @ 18% {gst}", "sac": sac, "state": POS_STATE, "tax": "IH", "taxable": inr,
+                "amount": round(inr * GST_RATE, 2),
+            })
+    return charges, taxes
 EDO_VALID_DAYS = 14
 
 # Each kind of request, and the status in which it waits for CMA CGM.
@@ -111,22 +144,15 @@ def verify_invoice(store: Store, item_id: str) -> str:
         if real is not None:
             invoice_no, total, invoice_date, name, pdf = real
         else:
-            count = max(1, len(request.get("containers") or []))
-            lines = [
-                (text, f"{count} x {documents.money(rate)}", round(rate * count, 2))
-                if basis == "per container"
-                else (text, basis, rate)
-                for text, basis, rate in TARIFF
-            ]
-            subtotal = round(sum(amount for *_, amount in lines), 2)
-            gst = round(subtotal * GST_RATE, 2)
-            total = round(subtotal + gst, 2)
+            boxes = request.get("containers") or []
+            charges, taxes = invoice_lines(request.get("sizes") or ["40HC"] * max(1, len(boxes)))
+            total = round(sum(c["amount_inr"] for c in charges) + sum(t["amount"] for t in taxes), 2)
             invoice_no = f"INV-DEMO-{next_number(data, 'invoice'):05d}"
             invoice_date, name = date.today().isoformat(), f"{invoice_no}.pdf"
             pdf = documents.invoice_pdf(
-                invoice_no=invoice_no, on=invoice_date, liner=request["liner"], bl_no=request["bl_no"],
-                containers=request.get("containers") or [], request_ref=request["ref"], lines=lines, gst=gst,
-                total=total,
+                invoice_no=invoice_no, on=invoice_date, bl_no=request["bl_no"], vessel=request.get("vessel") or "-",
+                voyage=request.get("voyage") or "-", containers=boxes, charges=charges, taxes=taxes,
+                usd_rate=USD_RATE, request_ref=request["ref"],
             )
         file_id = store.add_file(data, pdf, name)
         request.update(

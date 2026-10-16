@@ -136,6 +136,10 @@ Mail without a code, or with an MBL no job has, is ignored. The mail log (`inbou
 
 Ask about this job (on each job) and the Help page answer the team's questions in plain words: where a job stands and what is left, which jobs are late, why a mail opened no job, why the browser agent failed, whether a part of the app is down. Gemini answers (`backend/app/assistant.py`), through read-only tools over the jobs and their steps, the job's history, the mail log, the mailbox itself, the agent's runs, the Inngest dev server's runs, and a health check (engine, portals, tunnel, Graph subscription, empty fixed details). `PROCESS.md` is its guide. It changes nothing: it says the reason and who does what to fix it. UTRs and account numbers reach the model as their last 4 digits. It needs `GOOGLE_API_KEY`, and tries the models of `DO_AI_MODELS` in order.
 
+## Finance
+
+The Finance page, on the main dashboard, adds up the DO invoices of every job. The browser agent collects each invoice from ODeX into the job's `portal/` folder; `backend/app/invoice_reader.py` reads its two tables (the charges, and the GST lines) and its totals from the PDF, and accepts them only when the lines add up to the totals. The page shows the totals invoiced, paid and still to pay, the security deposits, the charges by type, the GST by service, and each invoice with its payment and deposit. It filters by period, stage, payment, charge and job, and exports the invoices shown as CSV. The local ODeX's invoices are laid out as CMA CGM's import tax invoice, so the demo jobs read the same way.
+
 ## Local portals
 
 The process runs on two websites, ODeX and CMA CGM's RTGS payments page, and waits days on CMA CGM in between. `backend/local_portals` has local versions of both, so it can be shown end to end in minutes and its SOPs proven without touching a real site:
@@ -181,6 +185,8 @@ Stamps carry signatures, so `backend/assets/private/` (stamps and bonds) is kept
 | POST | `/api/shipments/{id}/tasks/odex_do_request/complete` | Approves the DO request on ODeX, or confirms it was raised by hand |
 | GET | `/api/shipments/{id}/runs` | The browser agent's runs for the job |
 | GET | `/api/shipments/{id}/events` | The job's history |
+| GET | `/api/finance` | Every job's DO invoice, read from its PDF, with its payment and deposit |
+| GET | `/api/shipments/{id}/invoice.pdf` | The DO invoice the agent collected from ODeX |
 | POST | `/api/assistant` | A question to the assistant (`question`, optional `shipment_id`, and `history`, the chat so far) |
 | POST | `/api/demo/reset` | Reseeds the demo data |
 | GET, POST, PUT | `/api/inngest` | Where the Inngest dev server (or Inngest Cloud) calls the workflows |

@@ -5,6 +5,7 @@ import Celebrate from "./components/Celebrate.jsx";
 import Printer from "./components/Printer.jsx";
 import Detail from "./components/Detail.jsx";
 import Faq from "./components/Faq.jsx";
+import Finance from "./components/Finance.jsx";
 import Helper from "./components/Helper.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import TopBar from "./components/TopBar.jsx";
@@ -315,6 +316,8 @@ export default function App({ user, onSignOut }) {
             onProfileSaved={onProfileSaved}
             say={say}
           />
+        ) : page === "finance" ? (
+          <Finance stages={folder.stages} onOpen={open} />
         ) : page === "faq" ? (
           <Faq stages={folder.stages} />
         ) : (

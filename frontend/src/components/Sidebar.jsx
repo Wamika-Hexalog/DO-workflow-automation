@@ -1,5 +1,5 @@
 import mark from "../assets/hexalog-mark.svg";
-import { BoardIcon, HelpIcon } from "./Icons.jsx";
+import { BoardIcon, HelpIcon, WalletIcon } from "./Icons.jsx";
 import { stageTone } from "./Route.jsx";
 
 export default function Sidebar({ page, onPage, stages, shipments, onStage, onReset, user, onSignOut }) {
@@ -15,6 +15,7 @@ export default function Sidebar({ page, onPage, stages, shipments, onStage, onRe
       <nav className="side-nav" aria-label="Main">
         {[
           ["board", "Board", BoardIcon],
+          ["finance", "Finance", WalletIcon],
           ["faq", "FAQ", HelpIcon],
         ].map(([id, label, LinkIcon]) => (
           <button

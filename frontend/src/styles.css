@@ -749,6 +749,40 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
 }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* Finance: every job's DO invoice, its payment and its deposit */
+.finance { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 48px; }
+.fin-hero { grid-template-columns: minmax(320px, 620px) minmax(0, 1fr); }
+.fin-body { display: grid; gap: 16px; margin: 0 32px; }
+.fin-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fin-filters .input { flex: 0 1 auto; width: auto; min-width: 130px; max-width: 210px; }
+.fin-filters .search { flex: 1 1 200px; min-width: 180px; }
+.fin-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.fin-kpi { padding: 14px 16px; border: var(--hair) solid var(--rule); border-radius: var(--radius-md); background: var(--sheet); box-shadow: var(--shadow-card); }
+.fin-kpi span { display: block; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+.fin-kpi strong { display: block; margin-top: 4px; font: 700 21px/1.2 var(--font-display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.fin-kpi small { display: block; margin-top: 2px; color: var(--ink-2); font-size: 12px; }
+.fin-kpi.alert { border-color: color-mix(in srgb, var(--alert) 35%, white); }
+.fin-kpi.alert strong { color: var(--alert); }
+.fin-split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+.panel.fin-panel { margin-top: 0; padding: 16px 18px 12px; }
+.fin-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px; }
+.fin-head h2 { font-size: 16px; font-weight: 700; }
+.fin-note { color: var(--ink-2); font-size: 12.5px; }
+.fin-waiting { margin-top: 12px; }
+.fin-table-wrap { overflow-x: auto; }
+.fin-table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.fin-table th { padding: 8px 10px; border-bottom: var(--hair) solid var(--rule-field); color: var(--ink-2); font-size: 12px; font-weight: 600; text-align: left; white-space: nowrap; }
+.fin-table td { padding: 9px 10px; border-bottom: var(--hair) solid var(--rule); vertical-align: top; }
+.fin-table .num { text-align: right; white-space: nowrap; }
+.fin-table tfoot td { border-bottom: 0; font-weight: 700; }
+.fin-table tr.picked td { background: var(--selected); }
+.fin-table .badge { margin-right: 4px; }
+.fin-link { padding: 0; border: 0; background: none; color: var(--label); font: inherit; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer; }
+.fin-link:hover { text-decoration: underline; }
+.fin-sub { display: block; margin-top: 2px; color: var(--ink-2); font-size: 12px; }
+.fin-bar { height: 5px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: var(--tint); }
+.fin-bar i { display: block; height: 100%; border-radius: inherit; background: var(--hexa-violet); }
+
 /* The assistant: on the Help page, and a section of each job */
 .ask { margin: 0 0 18px; padding: 18px 20px 16px; }
 .ask-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
@@ -791,6 +825,8 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   .hero-mascot { display: none; }
   .faq-layout { grid-template-columns: minmax(0, 1fr); margin: 0 16px; }
   .faq-side { position: static; }
+  .fin-body { margin: 0 16px; }
+  .fin-split { grid-template-columns: minmax(0, 1fr); }
   .ask { padding: 14px; }
   .ask-turn { max-width: 100%; }
   .ask-thread { max-height: 60vh; }

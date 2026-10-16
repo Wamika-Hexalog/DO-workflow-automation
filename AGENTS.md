@@ -42,6 +42,7 @@ reformats files you did not change.
 | Mail: the code parser, the content recognizers, the AI reader, the database jobs | `backend/app/email_code.py`, `email_infer.py`, `email_ai.py`, `email_ingest.py` |
 | The Graph webhook | `backend/app/webhooks.py` |
 | Sign-in: users, session cookies, the login page | `backend/app/auth.py`, `frontend/src/components/Login.jsx`, `frontend/src/main.jsx` |
+| The finance page's data: the DO invoice reader, and each job's invoice with its payments | `backend/app/invoice_reader.py`, `finance.py` |
 | The assistant (Gemini with read-only tools), and the mail log it reads (`InboundMail`) | `backend/app/assistant.py`, `gemini.py`, `db.py` |
 | The process steps by number (1 is the pre-alert, 12 the eDO), as the team names them | `PROCESS.md` |
 | The portal steps around the DO request: what each needs and leaves, their tasks | `backend/app/process.py`, `backend/app/workflows/invoice.py`, `payment.py`, `edo.py` |

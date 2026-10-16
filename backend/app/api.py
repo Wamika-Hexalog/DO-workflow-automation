@@ -17,6 +17,7 @@ import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
@@ -27,7 +28,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .auth import current_user
-from . import assemble, assistant, checks, containers, letters, pdfs, process_steps, reminders, service, tasks
+from . import (
+    assemble, assistant, checks, containers, finance, letters, pdfs, portal_params, process_steps, reminders, service,
+    tasks,
+)
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
 from .runtime import Runtime
@@ -583,6 +587,22 @@ def portal_file(shipment_id: str, file_id: str, session: SessionDep, rt: Runtime
     if reply.status_code != 200:
         raise HTTPException(404, "No such file.")
     return Response(reply.content, media_type="application/pdf", headers={"Content-Disposition": reply.headers.get("content-disposition", "inline")})
+
+
+@router.get("/shipments/{shipment_id}/invoice.pdf")
+def invoice_file(shipment_id: str, session: SessionDep, rt: RuntimeDep) -> FileResponse:
+    """The DO invoice the browser agent collected from ODeX."""
+    shipment = _shipment(session, shipment_id)
+    path = Path(portal_params.invoice_pdf_path(rt, shipment))
+    if not path.is_file():
+        raise HTTPException(404, "The DO invoice hasn't been collected from ODeX yet.")
+    return FileResponse(path, media_type="application/pdf", filename=path.name, content_disposition_type="inline")
+
+
+@router.get("/finance")
+def finance_view(rt: RuntimeDep) -> dict[str, Any]:
+    """Every job's DO invoice, read from its PDF, and where its payment and deposit stand."""
+    return {"jobs": finance.jobs_job(rt), "today": date.today().isoformat()}
 
 
 @router.get("/shipments/{shipment_id}/folder.pdf")
