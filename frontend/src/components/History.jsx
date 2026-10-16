@@ -33,10 +33,6 @@ export default function History({ shipment, stageNames }) {
   return (
     <section>
       <h3 className="section-title">History</h3>
-      <p className="section-sub">
-        Every file attached, replaced or removed, every check by eye, every build and stage change. Replaced and
-        removed files are kept.
-      </p>
       {error && <p className="problems">{error}</p>}
       {events === null && !error && <p className="hint">Loading…</p>}
       {events && (

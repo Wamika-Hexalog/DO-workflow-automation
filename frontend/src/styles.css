@@ -186,7 +186,7 @@ svg { flex: none; }
     linear-gradient(180deg, #EEE8FE, #F5F2FE);
   overflow: hidden;
 }
-.hero h1 { margin-top: 4px; font: 700 30px/1.15 var(--font-display); letter-spacing: -0.02em; }
+.hero h1 { font: 700 34px/1.15 var(--font-display); letter-spacing: -0.02em; }
 .page-sub { margin-top: 4px; color: var(--ink-2); font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .hero-actions { display: flex; gap: 8px; margin-top: 16px; }
 .hero-actions .search { flex: 1; }
@@ -478,12 +478,8 @@ textarea.input { min-height: 72px; resize: vertical; }
 .main-inner.wide { max-width: none; }
 .mobile-nav { display: none; margin-bottom: 18px; }
 .section-title { font: 700 24px/1.2 var(--font-display); letter-spacing: -0.02em; }
-.section-head { display: grid; gap: 4px; }
-.section-head .section-sub { margin-top: 0; }
-.section-sub { max-width: 64ch; margin-top: 6px; color: var(--ink-2); }
 /* Form groups sit on white panels over the Mist page. */
 .panel { margin-top: 16px; padding: 20px 24px 24px; border: var(--hair) solid var(--rule); border-radius: var(--radius-md); background: var(--sheet); box-shadow: var(--shadow-card); }
-.section-sub + .panel, .section-sub + div > .panel { margin-top: 20px; }
 .group-title { display: flex; align-items: center; gap: 10px; margin: -4px 0 18px; padding-bottom: 12px; border-bottom: var(--hair) solid var(--hexa-lavender); font: 700 15px/1.3 var(--font-ui); letter-spacing: -0.005em; }
 .group-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--brown-soft); color: var(--brown-ink); }
 .group-name { flex: 1; min-width: 0; }
@@ -619,7 +615,6 @@ textarea.input { min-height: 72px; resize: vertical; }
 .route-link { display: block; width: 100%; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; text-align: left; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out); }
 .route-link:hover { background: var(--wash); }
 .stage-hint { margin-top: 16px; }
-.stage-off { margin-top: 12px; }
 .timeline { position: relative; display: grid; gap: 0; margin: 20px 0 0; padding: 0; list-style: none; }
 .t-stage { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 16px; padding-bottom: 20px; }
 /* The line between stops: solid once passed, dashed ahead. */
@@ -821,7 +816,7 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   .side-brand { margin-right: auto; padding: 0; }
   .side-nav, .side-label, .pipeline, .side-user { display: none; }
   .hero { grid-template-columns: minmax(0, 1fr); margin: 12px 16px; padding: 18px 16px; }
-  .hero h1 { font-size: 24px; }
+  .hero h1 { font-size: 28px; }
   .hero-mascot { display: none; }
   .faq-layout { grid-template-columns: minmax(0, 1fr); margin: 0 16px; }
   .faq-side { position: static; }

@@ -8,7 +8,6 @@ export default function TopBar({ stages, query, setQuery, shipments, onNew, onSt
   return (
     <header className="hero">
       <div className="hero-text">
-        <p className="eyebrow">Import delivery orders</p>
         <h1>Delivery orders</h1>
         <p className="page-sub">
           {shipments.length} active · <span className={toCheck ? "attn" : undefined}>{toCheck} to check</span> · {ready}{" "}

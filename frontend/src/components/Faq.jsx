@@ -49,9 +49,7 @@ export default function Faq({ stages }) {
     <main className="faq">
       <header className="hero">
         <div className="hero-text">
-          <p className="eyebrow">Help</p>
           <h1>How can we help?</h1>
-          <p className="page-sub">Quick answers about jobs, documents and the DO folder.</p>
           <div className="hero-actions">
             <label className="search">
               <SearchIcon />

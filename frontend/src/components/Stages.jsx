@@ -109,10 +109,7 @@ export default function Stages({ shipment, stages, onMove, goTo }) {
 
   return (
     <section>
-      <header className="section-head">
-        <h3 className="section-title">Stages</h3>
-        <p className="section-sub">Where this job stands, with what ODeX and the CMA CGM RTGS site show for it. It updates by itself.</p>
-      </header>
+      <h3 className="section-title">Stages</h3>
 
       {reached > at && (
         <div className="banner warn compact stage-hint">
@@ -123,11 +120,6 @@ export default function Stages({ shipment, stages, onMove, goTo }) {
             Move to {stages[reached].name}
           </button>
         </div>
-      )}
-      {portal && !portal.available && (
-        <p className="hint stage-off">
-          CMA CGM's side can't be shown right now.
-        </p>
       )}
 
       <ol className="timeline">

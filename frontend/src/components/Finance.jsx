@@ -163,12 +163,7 @@ export default function Finance({ stages, onOpen }) {
     <main className="finance">
       <header className="hero fin-hero">
         <div className="hero-text">
-          <p className="eyebrow">Finance</p>
           <h1>DO invoices and payments</h1>
-          <p className="page-sub">
-            What CMA CGM invoiced, what Finance paid and the security deposits, across every job. Read from each DO
-            invoice the agent collects from ODeX.
-          </p>
         </div>
         <div />
         <img className="hero-mascot" src={mascot} alt="" width="290" height="480" />

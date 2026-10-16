@@ -189,17 +189,9 @@ export default function FolderList({ folder, shipment, focusSlot, setFocusSlot, 
     return () => clearTimeout(timer);
   }, [focusSlot, setFocusSlot]);
 
-  const missing = shipment.slots.filter((s) => s.status === "missing").length;
-  const flagged = shipment.slots.filter((s) => s.status === "flagged").length;
   return (
     <section>
       <h3 className="section-title">DO folder</h3>
-      <p className="section-sub">
-        {shipment.docs_total} documents, in the order they go into the PDF for CMA CGM.{" "}
-        {missing + flagged === 0
-          ? "Everything is in place. Review and build the folder next."
-          : [missing && `${missing} still missing`, flagged && `${flagged} to check`].filter(Boolean).join(", ") + "."}
-      </p>
       <ol className="slots">
         {shipment.slots.map((slot, i) => (
           <SlotRow

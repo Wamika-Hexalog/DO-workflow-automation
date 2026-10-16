@@ -65,10 +65,7 @@ function Group({ title, icon: GroupIcon = FileIcon, fields, status, children }) 
 export function ShipmentForm({ folder, values, setValue, issues, pendingKeys, status }) {
   return (
     <section>
-      <header className="section-head">
-        <h3 className="section-title">Shipment details</h3>
-        <p className="section-sub">Entered once for this MBL. Every letter in the DO folder prints these values.</p>
-      </header>
+      <h3 className="section-title">Shipment details</h3>
       {folder.shipment_groups.map((group) => (
         <Group key={group.title} title={group.title} icon={GROUP_ICON[group.title]} fields={group.fields} status={status}>
           {group.fields.map((f) => (
@@ -97,12 +94,7 @@ export function FixedForm({ folder, values, setValue, status }) {
   ].filter((g) => g.fields.length);
   return (
     <section>
-      <header className="section-head">
-        <h3 className="section-title">Fixed details</h3>
-        <p className="section-sub">
-          The same for every job. A change updates the letters of every shipment; built folders need building again.
-        </p>
-      </header>
+      <h3 className="section-title">Fixed details</h3>
       {groups.map((group) => (
         <Group key={group.title} title={group.title} icon={group.icon} fields={group.fields} status={status}>
           {group.fields.map((f) => (
