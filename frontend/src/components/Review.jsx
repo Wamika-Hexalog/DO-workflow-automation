@@ -146,9 +146,14 @@ export default function Review({ shipment, seen, setSeen, onBuild, onDownload, g
   const slot = slots[Math.min(current, slots.length - 1)];
   const currentKey = seenKey(slot, shipment);
 
-  // Whatever is on screen counts as looked at.
+  // A document counts as looked at once it stays on screen, not when the scroll passes it.
   useEffect(() => {
-    if (slot.preview_url) setSeen((prev) => (prev.has(currentKey) ? prev : new Set(prev).add(currentKey)));
+    if (!slot.preview_url) return undefined;
+    const timer = setTimeout(
+      () => setSeen((prev) => (prev.has(currentKey) ? prev : new Set(prev).add(currentKey))),
+      800,
+    );
+    return () => clearTimeout(timer);
   }, [currentKey, slot.preview_url]);
   const isSeen = (s) => seen.has(seenKey(s, shipment));
   const unseen = slots.filter((s) => !isSeen(s)).length;
@@ -162,7 +167,8 @@ export default function Review({ shipment, seen, setSeen, onBuild, onDownload, g
   const scroller = useRef(null);
   const show = (i) => {
     setCurrent(i);
-    scroller.current?.querySelector(`[data-doc="${i}"]`)?.scrollIntoView({ block: "start" });
+    // Instant: a smooth jump draws every document on the way, and their growing pages move the target.
+    scroller.current?.querySelector(`[data-doc="${i}"]`)?.scrollIntoView({ block: "start", behavior: "instant" });
   };
   const onScroll = (e) => {
     const box = e.currentTarget;

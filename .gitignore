@@ -7,6 +7,8 @@ frontend/node_modules/
 frontend/dist/
 Docs/
 backend/assets/private/
+# A third-party sound clip; the printer stays silent without it.
+frontend/public/printer.mp3
 .env
 !.env.example
 

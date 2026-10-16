@@ -880,6 +880,23 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   .confetti { display: none; }
 }
 
+/* The DO folder build: the documents go into the printer, one PDF comes out. */
+.sheet { position: absolute; left: calc(50% - 24px); top: -70px; z-index: 1; width: 48px; height: 62px; border-radius: 4px; background: #fff repeating-linear-gradient(180deg, transparent 0 9px, #E4DDF5 9px 11px) 8px 10px / 32px 40px no-repeat; box-shadow: 0 2px 6px rgba(38, 18, 77, 0.18); opacity: 0; --r: calc((var(--i) - 1.5) * 8deg); animation: feed 2.4s ease-in calc(var(--i) * 0.6s) infinite; }
+.printer { position: absolute; left: 50%; top: 70px; z-index: 2; width: 180px; height: 72px; margin-left: -90px; border-radius: 14px; background: #26124D; box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.2); animation: rattle 0.18s linear infinite; }
+.printer::before { content: ""; position: absolute; left: 30px; right: 30px; top: -10px; height: 12px; border-radius: 6px 6px 0 0; background: #834DFB; }
+.printer::after { content: ""; position: absolute; left: 28px; right: 28px; bottom: 12px; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.5); }
+.printer-light { position: absolute; top: 14px; right: 16px; width: 8px; height: 8px; border-radius: 999px; background: #B2BC85; animation: blink 0.8s steps(2) infinite; }
+.printer-tray { position: absolute; left: calc(50% - 40px); top: 130px; z-index: 3; width: 80px; height: 100px; overflow: hidden; }
+.printer-out { display: grid; place-items: end center; width: 64px; height: 84px; margin: 0 auto; padding-bottom: 10px; border-radius: 4px; background: #fff repeating-linear-gradient(180deg, transparent 0 9px, #E4DDF5 9px 11px) 10px 10px / 44px 40px no-repeat; box-shadow: 0 4px 10px rgba(38, 18, 77, 0.2); color: #834DFB; font: 700 12px/1 var(--font-display); animation: print 3.3s ease-out 1.2s infinite both; }
+@keyframes feed { 0% { opacity: 0; transform: rotate(var(--r)); } 15% { opacity: 1; } 60% { opacity: 1; transform: translateY(120px) rotate(0); } 70%, 100% { opacity: 0; transform: translateY(130px); } }
+@keyframes rattle { 50% { transform: translate(0.5px, -1px); } }
+@keyframes blink { 50% { opacity: 0.2; } }
+@keyframes print { 0% { transform: translateY(-100%); } 80%, 100% { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .printer, .printer-light, .printer-out { animation: none; }
+  .sheet { display: none; }
+}
+
 /* Login page. */
 .login { display: grid; place-items: center; min-height: 100vh; padding: 16px; background: var(--paper); }
 .login-card { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 360px; padding: 32px; border-radius: var(--radius-md); background: var(--sheet); box-shadow: var(--shadow-lift); }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.js";
 import Board from "./components/Board.jsx";
 import Celebrate from "./components/Celebrate.jsx";
+import Printer from "./components/Printer.jsx";
 import Detail from "./components/Detail.jsx";
 import Faq from "./components/Faq.jsx";
 import Helper from "./components/Helper.jsx";
@@ -147,10 +148,13 @@ export default function App({ user, onSignOut }) {
     async (id) => {
       const before = shipments.find((s) => s.id === id);
       setBuilding(true);
+      // The printer plays until its first PDF is fully out (see .printer-out), even when the build is quick.
+      const printed = new Promise((resolve) => setTimeout(resolve, 4400));
       try {
         replaceShipment(await api.build(id));
         // The build workflow makes the PDF; wait for it, then download.
         const updated = await waitFor(id, (s) => !s.building, replaceShipment, { every: 1000, limit: 60000 });
+        await printed;
         const review = updated.tasks.find((t) => t.key === "folder_review");
         if (updated.building) {
           say("The DO folder is taking longer than usual. Please check again in a few minutes.");
@@ -162,7 +166,7 @@ export default function App({ user, onSignOut }) {
         }
         if (updated.folder) {
           download(updated.folder);
-          setCelebrate({ mbl: updated.values.mbl_no });
+          setCelebrate({ id, mbl: updated.values.mbl_no });
         }
         if (before && before.status !== updated.status) {
           say("DO folder built and downloaded. The job moved to DO folder ready.");
@@ -204,6 +208,17 @@ export default function App({ user, onSignOut }) {
     },
     [replaceShipment, say],
   );
+
+  // In manual mode approving means "I've raised it", so the celebrate button only opens the panel.
+  const raiseDoRequest = useCallback(() => {
+    const s = shipments.find((x) => x.id === celebrate.id);
+    const task = s && doRequestTask(s);
+    endCelebrate();
+    setSection("review");
+    if (folder.odex?.automated && task && ["awaiting_approval", "failed"].includes(task.status)) {
+      approveDoRequest(celebrate.id);
+    }
+  }, [shipments, celebrate, folder, endCelebrate, approveDoRequest]);
 
   const newShipment = useCallback(async () => {
     try {
@@ -292,7 +307,7 @@ export default function App({ user, onSignOut }) {
             onBack={() => window.history.back()}
             onMove={moveTo}
             onBuild={build}
-            onDownload={() => setCelebrate({ mbl: current.values.mbl_no })}
+            onDownload={() => setCelebrate({ id: current.id, mbl: current.values.mbl_no })}
             building={building}
             onApproveDoRequest={approveDoRequest}
             approving={approving}
@@ -324,7 +339,14 @@ export default function App({ user, onSignOut }) {
         )}
       </div>
       {!current && page === "board" && <Helper onOpenFaq={() => goPage("faq")} />}
-      {celebrate && <Celebrate mbl={celebrate.mbl} onClose={endCelebrate} />}
+      {building && <Printer />}
+      {celebrate && (
+        <Celebrate
+          mbl={celebrate.mbl}
+          onClose={endCelebrate}
+          onRaise={raiseDoRequest}
+        />
+      )}
       <div className="toast-wrap" role="status" aria-live="polite">
         {toast && (
           <div className="toast" key={toast.at}>

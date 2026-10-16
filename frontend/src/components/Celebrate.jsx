@@ -9,7 +9,7 @@ const CONTAINERS = [
 const CONFETTI = ["#834DFB", "#FFD728", "#B2BC85", "#A783FC", "#907862", "#FFD728", "#834DFB", "#B2BC85"];
 
 // Shown when the DO folder PDF starts to download: the Hexanaut sails off with the folder.
-export default function Celebrate({ mbl, onClose }) {
+export default function Celebrate({ mbl, onClose, onRaise }) {
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     const timer = setTimeout(onClose, 9000);
@@ -56,8 +56,8 @@ export default function Celebrate({ mbl, onClose }) {
         <p>
           The DO folder{mbl ? ` for MBL ${mbl}` : ""} is downloading. The Hexanaut is shipping it off.
         </p>
-        <button type="button" className="btn btn-primary" onClick={onClose}>
-          Back to work
+        <button type="button" className="btn btn-primary" onClick={onRaise}>
+          Raise DO request on ODeX
         </button>
       </div>
     </div>
