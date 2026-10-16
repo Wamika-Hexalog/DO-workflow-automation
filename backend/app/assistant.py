@@ -176,7 +176,8 @@ _CODE_UTR = re.compile(r"(utr:[^:\s]+:(?:deposit:)?)([A-Za-z0-9]{5,})", re.I)
 async def ask(rt: Runtime, question: str, shipment_id: str | None, history: list[dict[str, str]]) -> dict[str, Any]:
     """The answer, the model that gave it, and what it looked at."""
     if not rt.settings.google_api_key:
-        return _reply("The assistant needs a Gemini key: set GOOGLE_API_KEY in backend/.env, then restart the app.")
+        logger.warning("The assistant is off: set GOOGLE_API_KEY in backend/.env, then restart the app")
+        return _reply("The assistant isn't available right now. Please try again later.")
     secrets, about = await asyncio.to_thread(_context, rt, shipment_id)
     contents = [
         {"role": "model" if turn["role"] == "assistant" else "user", "parts": [{"text": turn["text"]}]}
