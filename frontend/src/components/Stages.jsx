@@ -126,7 +126,7 @@ export default function Stages({ shipment, stages, onMove, goTo }) {
       )}
       {portal && !portal.available && (
         <p className="hint stage-off">
-          The local portals are not running, so CMA CGM's side is not shown. Start them with <code>make portals</code>.
+          CMA CGM's side can't be shown right now.
         </p>
       )}
 

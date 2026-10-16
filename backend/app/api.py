@@ -56,7 +56,7 @@ from .workflows.events import EventNames
 logger = logging.getLogger(__name__)
 
 MAX_UPLOAD = 25 * 1024 * 1024
-ENGINE_DOWN = "The workflow engine isn't running, so nothing was started. Start it with make dev, then try again."
+ENGINE_DOWN = "The system is down, so nothing was started. Please try again in a few minutes."
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
@@ -462,6 +462,7 @@ def _complete_and_start(
     except EngineUnavailable as exc:
         tasks.restore(session, shipment.id, task_key, before)
         session.commit()
+        logger.warning("The workflow engine isn't running: start it with make dev")
         raise HTTPException(503, ENGINE_DOWN) from exc
 
 
@@ -577,7 +578,8 @@ def portal_file(shipment_id: str, file_id: str, session: SessionDep, rt: Runtime
     try:
         reply = httpx.get(f"{rt.settings.local_portals_url}/control/files/{file_id}", timeout=10)
     except httpx.HTTPError as exc:
-        raise HTTPException(502, "The local portals are not running. Start them with make portals.") from exc
+        logger.warning("The local portals aren't running: start them with make portals")
+        raise HTTPException(502, "This file isn't available right now. Please try again later.") from exc
     if reply.status_code != 200:
         raise HTTPException(404, "No such file.")
     return Response(reply.content, media_type="application/pdf", headers={"Content-Disposition": reply.headers.get("content-disposition", "inline")})

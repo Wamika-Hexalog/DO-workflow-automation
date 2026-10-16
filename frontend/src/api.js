@@ -16,7 +16,7 @@ async function request(method, path, body) {
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, "Can't reach the API. Check that the backend is running.");
+    throw new ApiError(0, "The system is down right now. Please try again in a few minutes.");
   }
   const data = await response.json().catch(() => null);
   // An expired or missing session: main.jsx shows the login page.

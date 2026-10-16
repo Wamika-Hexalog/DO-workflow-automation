@@ -83,7 +83,7 @@ def test_nothing_starts_if_the_engine_is_down(api, client):
     s = attach_everything(api, new_shipment(api))  # notices fail quietly; the uploads still stand
     client.down = True
     response = api.post(f"/api/shipments/{s['id']}/build", json={"confirmed": True})
-    assert response.status_code == 503 and "make dev" in response.json()["detail"]
+    assert response.status_code == 503 and "system is down" in response.json()["detail"]
     s = api.get(f"/api/shipments/{s['id']}").json()
     assert s["building"] is False and s["docs_ok"] == 12
     assert task(s, "folder_review")["status"] != "completed"

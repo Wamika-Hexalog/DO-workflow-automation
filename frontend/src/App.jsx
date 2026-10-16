@@ -153,7 +153,7 @@ export default function App({ user, onSignOut }) {
         const updated = await waitFor(id, (s) => !s.building, replaceShipment, { every: 1000, limit: 60000 });
         const review = updated.tasks.find((t) => t.key === "folder_review");
         if (updated.building) {
-          say("Still building. Check that the workflow engine is running: make dev starts it.");
+          say("The DO folder is taking longer than usual. Please check again in a few minutes.");
           return false;
         }
         if (review && review.status === "failed") {
@@ -241,7 +241,7 @@ export default function App({ user, onSignOut }) {
       <div className="boot-panel" role="alert">
         <h2>The board can't load</h2>
         <p>
-          {load.message} Start the API with <code>make api</code> or <code>make dev</code>, then try again.
+          {load.message}
         </p>
         <button
           type="button"

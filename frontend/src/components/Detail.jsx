@@ -98,7 +98,7 @@ export default function Detail({
   const saveAll = useCallback(async () => {
     const results = await Promise.all([flushShipment(), flushProfile()]);
     if (results.every(Boolean)) return true;
-    say("Some changes are not saved yet. Check that the API is running, then try again.");
+    say("Some changes are not saved yet. Please try again in a few minutes.");
     return false;
   }, [flushShipment, flushProfile, say]);
 
