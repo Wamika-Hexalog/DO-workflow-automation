@@ -12,6 +12,7 @@ from app.folder import FolderError, load_folder
 from app.main import create_app
 from app.seed import PROFILE_ID
 from conftest import (
+    sign_in,
     HBL,
     MBL,
     Engine,
@@ -193,6 +194,7 @@ def test_a_generated_letter_can_be_replaced_by_the_signed_copy(api):
 def test_a_missing_stamp_blocks_the_folder(tmp_path, private_dir):
     (private_dir / "stamps" / "envogue.png").unlink()
     with TestClient(create_app(settings_for(tmp_path, private_dir), RecordingInngest())) as api:
+        sign_in(api)
         s = new_shipment(api)
         setup = [f["message"] for f in slot(s, f"hbl:{HBL}")["flags"] if f["kind"] == "setup"]
         assert setup == ["The Envogue Styles stamp is missing. Run `make assets`."]
@@ -210,6 +212,7 @@ def test_every_change_lands_in_the_audit_trail(api, engine):
 
 def test_demo_data_resets(tmp_path, private_dir):
     with TestClient(create_app(settings_for(tmp_path, private_dir, seed=True), RecordingInngest())) as api:
+        sign_in(api)
         board = api.get("/api/shipments").json()
         assert [s["job_no"][-4:] for s in board] == ["0438", "0436", "0434", "0431"]
         api.post("/api/shipments", json={})
@@ -222,6 +225,7 @@ def test_a_new_field_starts_at_its_default_without_making_folders_out_of_date(tm
     client = RecordingInngest()
     app = create_app(settings, client)
     with TestClient(app) as api:
+        sign_in(api)
         s = build(api, Engine(app, client), attach_everything(api, new_shipment(api)))
         assert s["folder"]["stale"] is False
     # As if the database came from before do_folder.yaml had these fields.
@@ -234,6 +238,7 @@ def test_a_new_field_starts_at_its_default_without_making_folders_out_of_date(tm
         session.commit()
 
     with TestClient(create_app(settings, RecordingInngest())) as api:
+        sign_in(api)
         assert api.get("/api/profile").json()["values"]["odex_liner"] == "CMA CGM"
         s = api.get(f"/api/shipments/{s['id']}").json()
         assert s["values"]["deposit_amount"] == "40000"
@@ -246,6 +251,7 @@ def test_the_portal_records_say_unavailable_when_the_local_portals_are_not_runni
     # connection to the portals turns into an error response.
     settings = settings_for(tmp_path, private_dir, local_portals_url="http://127.0.0.1:9")
     with TestClient(create_app(settings, RecordingInngest())) as api:
+        sign_in(api)
         shipment = new_shipment(api)
         assert api.get(f"/api/shipments/{shipment['id']}/portal").json() == {"available": False}
         assert api.get(f"/api/shipments/{shipment['id']}/portal/files/abc123").status_code == 502

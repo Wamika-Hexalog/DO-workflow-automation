@@ -15,7 +15,7 @@ from app import containers
 from app.main import create_app
 from app.workflows import email as email_workflow
 from app.workflows.events import EventNames
-from tests.conftest import HBL, MBL, Engine, RecordingInngest, make_pdf, new_shipment, settings_for, slot
+from tests.conftest import HBL, MBL, Engine, RecordingInngest, make_pdf, new_shipment, settings_for, slot, sign_in
 
 
 class FakeOutlook:
@@ -189,6 +189,7 @@ def test_a_notification_becomes_an_inbound_mail_event(
     app = create_app(settings_for(tmp_path, private_dir, graph_client_state="right"), client)
     notification = {"value": [{"clientState": "right", "resourceData": {"id": "AAMk1"}}]}
     with TestClient(app) as api:
+        sign_in(api)
         assert api.post("/api/webhooks/microsoft-graph", json=notification).status_code == 202
     assert [e.name for e in client.sent] == [EventNames.EMAIL_INBOUND]
     assert client.sent[0].data["message_id"] == "AAMk1"
@@ -200,6 +201,7 @@ def test_a_notification_with_the_wrong_client_state_is_dropped(
     app = create_app(settings_for(tmp_path, private_dir, graph_client_state="right"), client)
     notification = {"value": [{"clientState": "wrong", "resourceData": {"id": "AAMk1"}}]}
     with TestClient(app) as api:
+        sign_in(api)
         assert api.post("/api/webhooks/microsoft-graph", json=notification).status_code == 202
     assert client.sent == []
 
@@ -211,6 +213,7 @@ def test_graph_is_asked_to_redeliver_when_the_engine_is_down(
     client.down = True
     notification = {"value": [{"resourceData": {"id": "AAMk1"}}]}
     with TestClient(app) as api:
+        sign_in(api)
         assert api.post("/api/webhooks/microsoft-graph", json=notification).status_code == 503
 
 
@@ -227,6 +230,7 @@ def test_the_graph_webhook_is_open_on_the_public_host_and_nothing_else_is_withou
     tmp_path: Path, private_dir: Path, client: RecordingInngest
 ) -> None:
     with TestClient(_public_app(tmp_path, private_dir, client, basic_auth_users="ops:s3cret")) as api:
+        sign_in(api)
         assert api.get("/api/webhooks/microsoft-graph?validationToken=t", headers=PUBLIC).text == "t"
         assert api.get("/api/shipments", headers=PUBLIC).status_code == 401
         assert api.get("/api/webhooks/status", headers=PUBLIC).status_code == 401
@@ -249,10 +253,11 @@ def test_with_no_logins_configured_the_public_host_serves_only_the_graph_webhook
         assert api.get("/api/shipments", headers={**PUBLIC, **LOGIN}).status_code == 404
 
 
-def test_the_same_api_needs_no_login_when_reached_locally(
+def test_the_same_api_needs_no_tunnel_login_when_reached_locally(
     tmp_path: Path, private_dir: Path, client: RecordingInngest
 ) -> None:
     with TestClient(_public_app(tmp_path, private_dir, client, basic_auth_users="ops:s3cret")) as api:
+        sign_in(api)
         assert api.get("/api/shipments").status_code == 200
 
 

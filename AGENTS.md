@@ -41,6 +41,7 @@ reformats files you did not change.
 | The Outlook connector (copied from python-brain) | `backend/app/connectors/` |
 | Mail: the code parser, the content recognizers, the AI reader, the database jobs | `backend/app/email_code.py`, `email_infer.py`, `email_ai.py`, `email_ingest.py` |
 | The Graph webhook | `backend/app/webhooks.py` |
+| Sign-in: users, session cookies, the login page | `backend/app/auth.py`, `frontend/src/components/Login.jsx`, `frontend/src/main.jsx` |
 | The assistant (Gemini with read-only tools), and the mail log it reads (`InboundMail`) | `backend/app/assistant.py`, `gemini.py`, `db.py` |
 | The process steps by number (1 is the pre-alert, 12 the eDO), as the team names them | `PROCESS.md` |
 | The portal steps around the DO request: what each needs and leaves, their tasks | `backend/app/process.py`, `backend/app/workflows/invoice.py`, `payment.py`, `edo.py` |
@@ -108,7 +109,9 @@ reformats files you did not change.
 - The prototype runs on a laptop. It uses the Inngest dev server and SQLite. Do not add Inngest Cloud
   keys or a deployed `INNGEST_SERVE_ORIGIN`.
 - A tunnel (ngrok) exposes port 8000 only. On the tunnel's hostname only
-  `/api/webhooks/microsoft-graph` is open. Everything else needs a login from `BASIC_AUTH_USERS`,
+  `/api/webhooks/microsoft-graph` is open. Everything else needs a login from `BASIC_AUTH_USERS`
+  (then the app's own sign-in, as everywhere: every `/api` route except `/api/auth/login`, the webhook
+  and `/api/inngest` needs a session),
   and `/api/inngest` is never served there, because in dev mode it does not check signatures.
   Do not run ngrok with `--host-header=rewrite`: the guard reads the `Host` header.
 - The Graph webhook checks `GRAPH_CLIENT_STATE`. Set it before the subscription is created.

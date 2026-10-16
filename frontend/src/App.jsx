@@ -36,7 +36,7 @@ function download(doc) {
   link.remove();
 }
 
-export default function App() {
+export default function App({ user, onSignOut }) {
   const [folder, setFolder] = useState(null);
   const [profile, setProfile] = useState(null);
   const [shipments, setShipments] = useState([]);
@@ -94,6 +94,7 @@ export default function App() {
       if (!s) return;
       const detailsDone = folder.shipmentFields.every((f) => f.optional || s.field_status[f.key] === "ok");
       setSection(!detailsDone ? "shipment" : s.ready ? "review" : "documents");
+      window.history.pushState({ view: "job" }, "");
       setOpenId(id);
     },
     [shipments, folder],
@@ -109,6 +110,27 @@ export default function App() {
       say(err.message);
     }
   }, [openId, say]);
+
+  // The browser's back button and the job's own back button both come home this way.
+  useEffect(() => {
+    const onPop = (event) => {
+      if (event.state?.view !== "home") return;
+      setPage("board");
+      if (openId) back();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [openId, back]);
+
+  const goPage = useCallback(
+    (to) => {
+      if (to === page) return;
+      if (to === "board") window.history.back();
+      else window.history.pushState({ view: to }, "");
+      setPage(to);
+    },
+    [page],
+  );
 
   const moveTo = useCallback(
     async (id, to) => {
@@ -189,6 +211,7 @@ export default function App() {
       setShipments((list) => [created, ...list]);
       setQuery("");
       setSection("shipment");
+      window.history.pushState({ view: "job" }, "");
       setOpenId(created.id);
       setFocusKey("mbl_no");
     } catch (err) {
@@ -240,15 +263,17 @@ export default function App() {
       {!current && (
         <Sidebar
           page={page}
-          onPage={setPage}
+          onPage={goPage}
           stages={folder.stages}
           shipments={shipments}
           onStage={(id) => {
-            setPage("board");
+            goPage("board");
             // The board mounts first, then scrolls to the column.
             setTimeout(() => showStage(id));
           }}
           onReset={reset}
+          user={user}
+          onSignOut={onSignOut}
         />
       )}
       <div className="workspace">
@@ -264,7 +289,7 @@ export default function App() {
             setFocusKey={setFocusKey}
             focusSlot={focusSlot}
             setFocusSlot={setFocusSlot}
-            onBack={back}
+            onBack={() => window.history.back()}
             onMove={moveTo}
             onBuild={build}
             onDownload={() => setCelebrate({ mbl: current.values.mbl_no })}
@@ -298,7 +323,7 @@ export default function App() {
           </>
         )}
       </div>
-      {!current && page === "board" && <Helper onOpenFaq={() => setPage("faq")} />}
+      {!current && page === "board" && <Helper onOpenFaq={() => goPage("faq")} />}
       {celebrate && <Celebrate mbl={celebrate.mbl} onClose={endCelebrate} />}
       <div className="toast-wrap" role="status" aria-live="polite">
         {toast && (

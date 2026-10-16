@@ -2,7 +2,7 @@ import mark from "../assets/hexalog-mark.svg";
 import { BoardIcon, HelpIcon } from "./Icons.jsx";
 import { stageTone } from "./Route.jsx";
 
-export default function Sidebar({ page, onPage, stages, shipments, onStage, onReset }) {
+export default function Sidebar({ page, onPage, stages, shipments, onStage, onReset, user, onSignOut }) {
   return (
     <aside className="sidebar" aria-label="Workspace">
       <div className="side-brand">
@@ -47,15 +47,18 @@ export default function Sidebar({ page, onPage, stages, shipments, onStage, onRe
       </ol>
       <details className="side-user">
         <summary>
-          <span className="avatar" aria-hidden="true">CO</span>
+          <span className="avatar" aria-hidden="true">{user.slice(0, 2).toUpperCase()}</span>
           <span className="who">
-            <strong>Customs ops</strong>
+            <strong>{user}</strong>
             <span>Hexalog Global</span>
           </span>
         </summary>
         <div className="side-menu">
           <button type="button" onClick={onReset}>
             Reset demo data
+          </button>
+          <button type="button" onClick={onSignOut}>
+            Sign out
           </button>
         </div>
       </details>

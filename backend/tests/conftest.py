@@ -17,6 +17,7 @@ from reportlab.pdfgen import canvas
 
 from app import api as api_module
 from app.config import BACKEND_DIR, Settings
+from app.auth import ensure_user
 from app.main import create_app
 
 MBL = "GGZ3193024"
@@ -156,10 +157,18 @@ def app(tmp_path: Path, private_dir: Path, client: RecordingInngest):
     return create_app(settings_for(tmp_path, private_dir), client)
 
 
+def sign_in(api: TestClient) -> TestClient:
+    """Adds a user and signs the client in, as the board does before any API call."""
+    with api.app.state.rt.sessionmaker() as session:
+        ensure_user(session, "ops", "test-password")
+    assert api.post("/api/auth/login", json={"username": "ops", "password": "test-password"}).status_code == 200
+    return api
+
+
 @pytest.fixture()
 def api(app):
     with TestClient(app) as test_client:
-        yield test_client
+        yield sign_in(test_client)
 
 
 @pytest.fixture()

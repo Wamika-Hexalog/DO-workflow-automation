@@ -36,7 +36,7 @@ from app.portal_params import (
     RTGS_SHIPMENT,
 )
 from app.workflows import browser
-from conftest import HBL, MBL, Engine, RecordingInngest, attach, build, make_pdf, new_shipment, settings_for, task
+from conftest import HBL, MBL, Engine, RecordingInngest, attach, build, make_pdf, new_shipment, settings_for, task, sign_in
 from local_portals import cma, mail
 from local_portals.main import create_app as create_portals
 
@@ -77,6 +77,7 @@ def do_app(tmp_path, private_dir, portals):
     client = RecordingInngest()
     app = create_app(settings, client)
     with TestClient(app) as api:
+        sign_in(api)
         yield api, Engine(app, client)
 
 
@@ -96,6 +97,7 @@ def process_app(tmp_path, private_dir, portals, monkeypatch):
     client = RecordingInngest()
     app = create_app(settings, client)
     with TestClient(app) as api:
+        sign_in(api)
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning", lifespan="off"))
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()

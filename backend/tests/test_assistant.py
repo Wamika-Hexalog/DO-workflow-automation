@@ -9,7 +9,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.conftest import MBL, Engine, RecordingInngest, new_shipment, settings_for
+from tests.conftest import MBL, Engine, RecordingInngest, new_shipment, settings_for, sign_in
 from tests.test_email_inbound import inbox, mail, receive  # noqa: F401 - the fixture
 
 GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -36,6 +36,7 @@ def assistant(tmp_path, private_dir):
     settings = settings_for(tmp_path, private_dir, google_api_key="test-key", ai_models="model-a,model-b")
     app = create_app(settings, client)
     with TestClient(app) as api:
+        sign_in(api)
         yield api, Engine(app, client), client
 
 

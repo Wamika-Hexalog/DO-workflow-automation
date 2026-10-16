@@ -19,6 +19,8 @@ async function request(method, path, body) {
     throw new ApiError(0, "Can't reach the API. Check that the backend is running.");
   }
   const data = await response.json().catch(() => null);
+  // An expired or missing session: main.jsx shows the login page.
+  if (response.status === 401 && !path.startsWith("/auth/")) window.dispatchEvent(new Event("signed-out"));
   if (!response.ok) {
     const detail = data && data.detail;
     if (typeof detail === "string") throw new ApiError(response.status, detail);
@@ -36,6 +38,9 @@ async function request(method, path, body) {
 const slotPath = (id, slotId) => `/shipments/${id}/slots/${encodeURIComponent(slotId)}`;
 
 export const api = {
+  login: (username, password) => request("POST", "/auth/login", { username, password }),
+  logout: () => request("POST", "/auth/logout"),
+  me: () => request("GET", "/auth/me"),
   folder: () => request("GET", "/folder"),
   profile: () => request("GET", "/profile"),
   saveProfile: (values) => request("PATCH", "/profile", { values }),

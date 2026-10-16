@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from conftest import HBL, Engine, RecordingInngest, attach_everything, build, new_shipment, settings_for
+from conftest import HBL, Engine, RecordingInngest, attach_everything, build, new_shipment, settings_for, sign_in
 
 pytestmark = pytest.mark.browser
 
@@ -39,6 +39,7 @@ def test_the_agent_raises_the_do_request_on_the_portal(tmp_path, private_dir, po
         settings_for(tmp_path, private_dir, odex_sop_path=portal_sop, browser_headless=headless), client
     )
     with TestClient(app) as api:
+        sign_in(api)
         engine = Engine(app, client)
         s = build(api, engine, attach_everything(api, new_shipment(api)))
         assert api.post(f"/api/shipments/{s['id']}/tasks/odex_do_request/complete", json={"by": "Ravi"}).status_code == 202

@@ -13,7 +13,7 @@ from app.db import utcnow
 from app.main import create_app
 from app.reminders import RULES, schedule
 from app.workflows.events import EventNames
-from tests.conftest import MBL, Engine, RecordingInngest, new_shipment, settings_for
+from tests.conftest import MBL, Engine, RecordingInngest, new_shipment, settings_for, sign_in
 
 HOUR = timedelta(hours=1)
 
@@ -43,6 +43,7 @@ def waiting_on_finance(tmp_path, private_dir):
     )
     app = create_app(settings, client)
     with TestClient(app) as api:
+        sign_in(api)
         s = new_shipment(api)
         rt = app.state.rt
 

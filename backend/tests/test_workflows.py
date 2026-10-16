@@ -23,6 +23,7 @@ from conftest import (
     make_pdf,
     new_shipment,
     settings_for,
+    sign_in,
     task,
 )
 
@@ -130,6 +131,7 @@ def test_the_payment_mail_goes_to_finance_with_the_invoice_and_the_cc(tmp_path, 
     client = RecordingInngest()
     app = create_app(settings_for(tmp_path, private_dir, automate_portals=True), client)
     with TestClient(app) as api:
+        sign_in(api)
         engine = Engine(app, client)
         fixed = {"finance_email": "finance@example.com", "mail_cc": "lead@example.com, desk@example.com"}
         assert api.patch("/api/profile", json={"values": fixed}).status_code == 200
@@ -161,6 +163,7 @@ def test_a_payment_the_job_is_already_past_never_waits_for_ops(tmp_path, private
     client = RecordingInngest()
     app = create_app(settings_for(tmp_path, private_dir, automate_portals=True), client)
     with TestClient(app) as api:
+        sign_in(api)
         engine = Engine(app, client)
         assert api.patch("/api/profile", json={"values": {"payer_account_no": "123456789012"}}).status_code == 200
         s = new_shipment(api)
@@ -211,7 +214,7 @@ def automated(tmp_path: Path, private_dir: Path):
     client = RecordingInngest()
     app = create_app(settings_for(tmp_path, private_dir, odex_sop_path=sop), client)
     with TestClient(app) as test_client:
-        yield test_client, Engine(app, client)
+        yield sign_in(test_client), Engine(app, client)
 
 
 def test_the_browser_agent_raises_one_request_per_house_bill(automated, monkeypatch):

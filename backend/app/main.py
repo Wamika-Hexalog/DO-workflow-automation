@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 
 from .api import router
+from .auth import ensure_user, router as auth_router
 from .connectors import _settings as connector_settings
 from .config import Settings
 from .db import Profile, make_sessionmaker
@@ -32,6 +33,8 @@ from .workflows.client import make_client
 
 
 GRAPH_WEBHOOK_PATH = "/api/webhooks/microsoft-graph"
+# The demo login. Made only with the demo data (DO_SEED_DEMO_DATA), never for real use.
+DEMO_USER, DEMO_EMAIL, DEMO_PASSWORD = "customs-ops", "customs.ops@hexalog.in", "hexalog-demo"
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +71,8 @@ def create_app(settings: Settings | None = None, inngest_client: inngest.Inngest
         if settings.seed_demo_data and session.scalar(select(func.count()).select_from(Profile)) == 0:
             seed_demo_data(session, folder, settings)
         ensure_profile(session, folder)
+        if settings.seed_demo_data:
+            ensure_user(session, DEMO_USER, DEMO_PASSWORD, DEMO_EMAIL)
 
     rt = Runtime(settings, folder, sessionmaker, inngest_client or make_client(settings))
     functions = create_functions(rt)
@@ -75,11 +80,12 @@ def create_app(settings: Settings | None = None, inngest_client: inngest.Inngest
     app = FastAPI(title="DO Workflow API", version="0.3.0", lifespan=lifespan)
     app.state.rt = rt
     app.state.functions = {fn.local_id: fn for fn in functions}
+    app.include_router(auth_router)
     app.include_router(router)
     app.include_router(webhooks_router)
 
     # The public tunnel (WEBHOOK_BASE_URL). Graph reaches the webhook there, and the team can open
-    # the app there behind a login. Nothing else is open: the API itself has no login, and
+    # the app there behind a login. Nothing else is open: the tunnel asks for this login before the app's own sign-in, and
     # /api/inngest does not check signatures in dev mode, so that path is never served on the tunnel.
     # Local requests (localhost) are unchanged. Do not run ngrok with --host-header=rewrite: this
     # reads the Host header, and the guard does nothing once it is localhost.

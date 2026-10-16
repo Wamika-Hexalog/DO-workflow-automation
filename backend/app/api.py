@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .auth import current_user
 from . import assemble, assistant, checks, containers, letters, pdfs, process_steps, reminders, service, tasks
 from .db import AutomationRun, Document, Event, Profile, Shipment, Task, utcnow
 from .folder import FOLDER_STAGE, STAGE_IDS, Folder, Slot, split_list
@@ -57,7 +58,7 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD = 25 * 1024 * 1024
 ENGINE_DOWN = "The workflow engine isn't running, so nothing was started. Start it with make dev, then try again."
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
 
 def get_runtime(request: Request) -> Runtime:

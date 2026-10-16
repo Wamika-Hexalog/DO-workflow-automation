@@ -182,6 +182,28 @@ class AutomationRun(Base):
     self_healing_events: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
+class User(Base):
+    """A person who can sign in to the board."""
+
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String(120), primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(200), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LoginSession(Base):
+    """A signed-in browser. Only the hash of the cookie's token is kept, so a copy of
+    the database can't be used to sign in."""
+
+    __tablename__ = "login_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(ForeignKey("users.username"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 def make_sessionmaker(database_url: str) -> sessionmaker:
     connect_args: dict[str, Any] = {}
     if database_url.startswith("sqlite:///"):
@@ -194,7 +216,7 @@ def make_sessionmaker(database_url: str) -> sessionmaker:
 
 
 # Columns added after a database was first made: create_all makes missing tables, not columns.
-_NEW_COLUMNS = {"tasks": {"status_since": "DATETIME"}}
+_NEW_COLUMNS = {"tasks": {"status_since": "DATETIME"}, "users": {"email": "VARCHAR(200)"}}
 
 
 def _add_new_columns(engine: Any) -> None:

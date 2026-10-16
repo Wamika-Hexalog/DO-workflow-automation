@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.workflows.events import EventNames
-from tests.conftest import MBL, Engine, RecordingInngest, make_pdf, new_shipment, settings_for
+from tests.conftest import MBL, Engine, RecordingInngest, make_pdf, new_shipment, settings_for, sign_in
 
 NUMBERS = ["1", "2", "3", "4", "5", "6", "7a", "7b", "7c", "8", "9", "10", "11", "12"]
 
@@ -16,6 +16,7 @@ def test_every_step_shows_in_order_and_a_wait_on_finance_carries_its_clock(tmp_p
     client = RecordingInngest()
     app = create_app(settings_for(tmp_path, private_dir, automate_portals=True), client)
     with TestClient(app) as api:
+        sign_in(api)
         engine = Engine(app, client)
         s = new_shipment(api, do_invoice_no="INV-DEMO-00001", do_invoice_amount="54720.68")
         process = api.get(f"/api/shipments/{s['id']}").json()["process"]

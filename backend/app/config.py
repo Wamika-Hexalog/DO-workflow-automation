@@ -102,7 +102,8 @@ class Settings:
     reminders_odex_poc: str = ""
     # Who gets the morning digest of every open job.
     digest_to: str = ""
-    # Logins for the public tunnel, "user:password,user2:password2". Local requests need none.
+    # Logins for the public tunnel, "user:password,user2:password2", asked before the app's sign-in.
+    # Local requests skip it.
     basic_auth_users: str = ""
 
     @property

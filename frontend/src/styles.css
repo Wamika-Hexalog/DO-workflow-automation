@@ -879,3 +879,9 @@ ul.faq-a li::before { content: ""; position: absolute; top: .6em; left: 0; width
   .celebrate, .celebrate-card, .celebrate-ship, .celebrate-ship img, .celebrate-sea { animation: none; }
   .confetti { display: none; }
 }
+
+/* Login page. */
+.login { display: grid; place-items: center; min-height: 100vh; padding: 16px; background: var(--paper); }
+.login-card { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 360px; padding: 32px; border-radius: var(--radius-md); background: var(--sheet); box-shadow: var(--shadow-lift); }
+.login-card h1 { margin: 0; font-size: 20px; color: var(--ink); }
+.login-error { margin: 0; color: var(--alert); font-size: 13.5px; }
